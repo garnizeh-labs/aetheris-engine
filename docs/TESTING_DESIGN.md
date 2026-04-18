@@ -69,7 +69,7 @@ The testing suite generates the data that gates these transitions:
 
 ### 2.2 Test Doubles as First-Class Citizens
 
-The `aetheris-protocol` crate ships test doubles (mock transport, mock world state, mock encoder) behind the `test-utils` feature flag. These are not afterthoughts — they are specified in [PROTOCOL_DESIGN.md](PROTOCOL_DESIGN.md) and must satisfy the same trait contracts as the real implementations.
+The `aetheris-protocol` crate ships test doubles (mock transport, mock world state, mock encoder) behind the `test-utils` feature flag. These are not afterthoughts — they are specified in [PROTOCOL_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md) and must satisfy the same trait contracts as the real implementations.
 
  ```texttoml
 # In any test crate's Cargo.toml:
@@ -476,7 +476,7 @@ Integration tests deliberately inject invalid data to verify the security layer:
 - **Criterion**: A statistics-driven benchmarking framework for Rust.
 - **Fuzz Target**: An entry point fed random data to discover panics and undefined behavior.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 

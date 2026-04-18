@@ -190,7 +190,7 @@ RenetServer (P1): built-in netcode.io replay protection — 256-entry sliding wi
 
 ### 4.4 Denial of Service (DoS) Protection
 
-The transport layer implements per-IP rate limiting to protect against amplification and flooding. See [TRANSPORT_DESIGN.md §4.3](TRANSPORT_DESIGN.md#43-renettransport-internals) for implementation details using the token-bucket `RateLimiter`.
+The transport layer implements per-IP rate limiting to protect against amplification and flooding. See [TRANSPORT_DESIGN.md §4.3](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/TRANSPORT_DESIGN.md#43-renettransport-internals) for implementation details using the token-bucket `RateLimiter`.
 
 ---
 
@@ -286,7 +286,7 @@ The Merkle Chain is maintained asynchronously by the Audit Worker for all Elevat
 
 Each entity under Merkle tracking has a per-entity hash chain stored in `entity_events.chain_hash`:
 
-See [PROTOCOL_DESIGN.md](PROTOCOL_DESIGN.md#merklehash-formula) for the canonical `MerkleHash` formula.
+See [PROTOCOL_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md#merklehash-formula) for the canonical `MerkleHash` formula.
 
 Where:
 
@@ -651,7 +651,7 @@ fn validate_sequence(client: &mut ClientState, seq: u64) -> Result<(), SecurityE
 - **Merkle Chain**: A cryptographic sequence providing tamper-evidence for stored game events.
 - **SuspicionScore**: An ephemeral metric driving how much monitoring a client receives.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 

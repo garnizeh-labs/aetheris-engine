@@ -637,7 +637,7 @@ Normal:      Moderate:    Severe:
 | Q1 | **Filter ordering optimization** | Should the pipeline auto-sort filters by restrictiveness (most restrictive first) to minimize set operations? | Open — manual ordering is sufficient for P1. |
 | Q2 | **Shared spatial query cache** | Many clients in the same cell produce identical AoI queries. Should results be cached per cell? | Open — P3 optimization. Measure first. |
 | Q3 | **Interest set compression** | Can we send interest set diffs (entered/exited) instead of per-entity spawn/despawn events? | Open — P3 protocol optimization. |
-| Q4 | **Cross-shard interest** | In federated deployments, how does interest span shard boundaries? | Addressed by [FEDERATION_DESIGN.md](FEDERATION_DESIGN.md) — entities are transferred, not cross-shard visible. |
+| Q4 | **Cross-shard interest** | In federated deployments, how does interest span shard boundaries? | Addressed by [FEDERATION_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md) — entities are transferred, not cross-shard visible. |
 
 ---
 

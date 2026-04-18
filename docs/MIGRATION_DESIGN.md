@@ -60,7 +60,7 @@ Changes to the wire format (encoder schema), `ComponentKind` registry, or gRPC A
 
 ### 2.4 Entity Migrations (P4)
 
-Cross-shard entity hand-off during federation. Live entities are frozen, serialized, transferred to a destination cluster, and respawned. See [FEDERATION_DESIGN.md](FEDERATION_DESIGN.md).
+Cross-shard entity hand-off during federation. Live entities are frozen, serialized, transferred to a destination cluster, and respawned. See [FEDERATION_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md).
 
 ---
 
@@ -420,7 +420,7 @@ Test old-version encoded payloads against the new decoder to ensure backward com
 - **Wire Format**: The binary encoding used to serialize components for network transmission.
 - **Deprecation Window**: The number of releases during which old behavior is maintained alongside new.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 

@@ -6,7 +6,7 @@ Authoritative, tick-based, deterministic simulation engine — spatial hashing, 
 
 **Aetheris Engine** is designed for browser-native multiplayer environments that demand sub-millisecond precision. By decoupling the simulation from the rendering and networking workers, Aetheris maintains a rock-solid 60Hz tick rate even under extreme network jitter. It enforces a zero-trust model where every state change is validated against authoritative rules before being replicated via optimized priority channels.
 
-> **[Read the Engine Design Document](docs/ENGINE_DESIGN.md)** — spatial partitioning, replication, and scaling.
+> **[Read the Engine Design Document](ENGINE_DESIGN.md)** — spatial partitioning, replication, and scaling.
 >
 > 🚀 **Latest Milestone:** **Architecture Extraction (M10145) in progress.** Decoupling the simulation core from the legacy monorepo.
 
@@ -35,9 +35,9 @@ For a full list of commands, run `just --list`.
 
 ## Documentation Entry Points
 
-- **[ENGINE_DESIGN.md](docs/ENGINE_DESIGN.md):** Core simulation architecture.
-- **[INTEREST_MANAGEMENT_DESIGN.md](docs/INTEREST_MANAGEMENT_DESIGN.md):** Bandwidth optimization and visibility rules.
-- **[SPATIAL_PARTITIONING_DESIGN.md](docs/SPATIAL_PARTITIONING_DESIGN.md):** Native spatial hash implementation.
+- **[ENGINE_DESIGN.md](ENGINE_DESIGN.md):** Core simulation architecture.
+- **[INTEREST_MANAGEMENT_DESIGN.md](INTEREST_MANAGEMENT_DESIGN.md):** Bandwidth optimization and visibility rules.
+- **[SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md):** Native spatial hash implementation.
 
 ## Design Philosophy
 

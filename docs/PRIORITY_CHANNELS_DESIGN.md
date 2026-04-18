@@ -396,7 +396,7 @@ graph TD
 
 ### 4.3 Relationship to Existing Reliability Tiers
 
-Priority Channels are **orthogonal** to the existing [Reliability Tier System](TRANSPORT_DESIGN.md#7-reliability-tier-system). A channel's reliability tier determines **how** data is delivered (datagram vs. stream). The priority level determines **whether** data is sent at all under congestion.
+Priority Channels are **orthogonal** to the existing [Reliability Tier System](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/TRANSPORT_DESIGN.md#7-reliability-tier-system). A channel's reliability tier determines **how** data is delivered (datagram vs. stream). The priority level determines **whether** data is sent at all under congestion.
 
 ```mermaid
 graph LR
@@ -1343,7 +1343,7 @@ graph TD
 | **Shedding Level** | Per-client congestion state (Normal, Level 1–3, Emergency) driving channel availability |
 | **Shedding Policy** | Per-channel configuration specifying when (at which SheddingLevel) a channel is shed |
 
-See also: [GLOSSARY.md](../GLOSSARY.md) for engine-level terminology, [TRANSPORT_DESIGN.md](TRANSPORT_DESIGN.md) for reliability tiers.
+See also: [GLOSSARY.md](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md) for engine-level terminology, [TRANSPORT_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/TRANSPORT_DESIGN.md) for reliability tiers.
 
 ---
 

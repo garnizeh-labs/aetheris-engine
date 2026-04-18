@@ -390,7 +390,7 @@ If the client's `Encoder::decode()` fails:
 
 ### 10.3 Server Authority Divergence
 
-If the server's authoritative state diverges from the client's prediction by > 10 meters (see [CLIENT_DESIGN.md §3.4](CLIENT_DESIGN.md#34-input-history-buffer)):
+If the server's authoritative state diverges from the client's prediction by > 10 meters (see [CLIENT_DESIGN.md §3.4](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/CLIENT_DESIGN.md#34-input-history-buffer)):
 
 1. The client teleports to the server's position (hard snap).
 2. A visual "rubberbanding" indicator is briefly shown.
@@ -461,7 +461,7 @@ Every error in Aetheris is observable through metrics and structured logs:
 - **Malformed Payload**: Input bytes that fail to parse into a valid protocol message.
 - **gRPC Status**: Standardized error codes for RPC responses (UNAUTHENTICATED, INVALID_ARGUMENT, etc.).
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 

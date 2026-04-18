@@ -557,7 +557,7 @@ lsof -i :5000 -i :4433 -i :50051 -i :9000 | grep LISTEN
 - **just**: A command runner (like `make`) used for project automation.
 - **nextest**: A faster Rust test runner that replaces `cargo test`.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 

@@ -80,7 +80,7 @@ Priority Channels are developer-configurable via the `ChannelRegistry` builder A
 
 This five-stage pipeline is the heartbeat of the engine. Every architectural decision below exists to make each stage faster, smaller, and more predictable.
 
-> **Canonical References:** Stage 2 input processing is detailed in [INPUT_PIPELINE_DESIGN.md](INPUT_PIPELINE_DESIGN.md). Stage 4 interest filtering is detailed in [INTEREST_MANAGEMENT_DESIGN.md](INTEREST_MANAGEMENT_DESIGN.md) and [SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md).
+> **Canonical References:** Stage 2 input processing is detailed in [INPUT_PIPELINE_DESIGN.md](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/INPUT_PIPELINE_DESIGN.md). Stage 4 interest filtering is detailed in [INTEREST_MANAGEMENT_DESIGN.md](INTEREST_MANAGEMENT_DESIGN.md) and [SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md).
 
 ---
 
@@ -180,23 +180,23 @@ Each trait is a stable contract. Implementations are swappable. The core loop on
 ### 4.2 Trait Definitions
 
 > [!IMPORTANT]
-> **Canonical Source**: The full trait definitions and protocol types have been moved to [PROTOCOL_DESIGN.md](PROTOCOL_DESIGN.md).
+> **Canonical Source**: The full trait definitions and protocol types have been moved to [PROTOCOL_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md).
 
 #### `GameTransport` — Network Abstraction
 
-See [PROTOCOL_DESIGN.md §2](PROTOCOL_DESIGN.md#2-gametransport--network-abstraction) for the canonical trait definition.
+See [PROTOCOL_DESIGN.md §2](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md#2-gametransport--network-abstraction) for the canonical trait definition.
 
 #### `WorldState` — ECS Adapter
 
-See [PROTOCOL_DESIGN.md §1](PROTOCOL_DESIGN.md#1-worldstate--ecs-adapter) for the canonical trait definition.
+See [PROTOCOL_DESIGN.md §1](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md#1-worldstate--ecs-adapter) for the canonical trait definition.
 
 #### `Encoder` — Serialization Protocol
 
-See [PROTOCOL_DESIGN.md §3](PROTOCOL_DESIGN.md#3-encoder--serialization-protocol) for the canonical trait definition.
+See [PROTOCOL_DESIGN.md §3](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md#3-encoder--serialization-protocol) for the canonical trait definition.
 
 ### 4.3 Core Protocol Types
 
-See [PROTOCOL_DESIGN.md §Core Protocol Types](PROTOCOL_DESIGN.md#core-protocol-types) for definitions of `NetworkId`, `LocalId`, `ClientId`, and `NetworkEvent`.
+See [PROTOCOL_DESIGN.md §Core Protocol Types](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md#core-protocol-types) for definitions of `NetworkId`, `LocalId`, `ClientId`, and `NetworkEvent`.
 
 ### 4.4 Error Types
 
@@ -626,7 +626,7 @@ This means `cargo build` gives Phase 1, and `cargo build --features phase3 --no-
 
 ## 10. Evolutionary Roadmap
 
-See the master [ROADMAP.md](../ROADMAP.md) for detailed milestone tracking and project status.
+See the master [ROADMAP.md](https://github.com/garnize/aetheris/blob/main/docs/ROADMAP.md) for detailed milestone tracking and project status.
 
 | Milestone | Goal | Subsystems | Status |
 |---|---|---|---|
@@ -641,9 +641,9 @@ See the master [ROADMAP.md](../ROADMAP.md) for detailed milestone tracking and p
 
 | Question | Context | Status |
 |---|---|---|
-| **Congestion Control Algorithm** | Should we use BBR, CUBIC, or a custom Game-Optimized CC? | Addressed in [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md) §7 |
+| **Congestion Control Algorithm** | Should we use BBR, CUBIC, or a custom Game-Optimized CC? | Addressed in [NETWORKING_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/NETWORKING_DESIGN.md) §7 |
 | **Asset Streaming Protocol** | How are large textures/meshes streamed over the Data Plane? | Addressed in [ASSET_STREAMING_DESIGN.md](ASSET_STREAMING_DESIGN.md) |
-| **Server-Side Rendering (SSR)** | For analytics or headless validation, do we need a server-side wgpu context? | Addressed in [SSR_DESIGN.md](SSR_DESIGN.md) |
+| **Server-Side Rendering (SSR)** | For analytics or headless validation, do we need a server-side wgpu context? | Addressed in [SSR_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/SSR_DESIGN.md) |
 
 ---
 

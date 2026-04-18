@@ -160,9 +160,9 @@ Security-critical events (e.g., `SuspicionLevel` escalation) use a specific `aud
 - **Prometheus**: A monitoring system that scrapes metrics from the engine at regular intervals.
 - **Loki**: A log aggregation system optimized for high-volume, structured engine logs.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
-See [GLOSSARY.md](../GLOSSARY.md) for terms like OTLP, p99, and BDP.
+See [GLOSSARY.md](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md) for terms like OTLP, p99, and BDP.
 
 ---
 
@@ -176,4 +176,4 @@ See [GLOSSARY.md](../GLOSSARY.md) for terms like OTLP, p99, and BDP.
 
 ## Appendix A — Glossary
 
-Refer to the master [Glossary](../GLOSSARY.md) for project-wide technical terms.
+Refer to the master [Glossary](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md) for project-wide technical terms.

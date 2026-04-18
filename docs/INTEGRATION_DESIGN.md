@@ -39,15 +39,15 @@ each boundary exists where it does.
 |---|---|---|
 | [ENGINE_DESIGN](ENGINE_DESIGN.md) | Tick pipeline | How is the game loop structured and which traits govern it? |
 | [ECS_DESIGN](ECS_DESIGN.md) | ECS and replication | How is entity state stored and extracted? |
-| [ENCODER_DESIGN](ENCODER_DESIGN.md) | Serialization | How are network bytes translated to Rust structs and back? |
-| [TRANSPORT_DESIGN](TRANSPORT_DESIGN.md) | Networking | How do packets arrive at and leave the server? |
-| [CLIENT_DESIGN](CLIENT_DESIGN.md) | Browser client | How does WASM run across 3 threads without blocking the DOM? |
-| [CONTROL_PLANE_DESIGN](CONTROL_PLANE_DESIGN.md) | Auth/Matchmaking | How does the client authenticate and receive the server address? |
+| [ENCODER_DESIGN](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/ENCODER_DESIGN.md) | Serialization | How are network bytes translated to Rust structs and back? |
+| [TRANSPORT_DESIGN](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/TRANSPORT_DESIGN.md) | Networking | How do packets arrive at and leave the server? |
+| [CLIENT_DESIGN](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/CLIENT_DESIGN.md) | Browser client | How does WASM run across 3 threads without blocking the DOM? |
+| [CONTROL_PLANE_DESIGN](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/CONTROL_PLANE_DESIGN.md) | Auth/Matchmaking | How does the client authenticate and receive the server address? |
 | [SECURITY_DESIGN](SECURITY_DESIGN.md) | Layered security | How are cheats detected without blocking the tick? |
 | [PERSISTENCE_DESIGN](PERSISTENCE_DESIGN.md) | Tiered persistence | How do events reach the database without touching the tick budget? |
-| [AUDIT_DESIGN](AUDIT_DESIGN.md) | Auditing (P3) | How does the Audit Worker verify integrity offline? |
+| [AUDIT_DESIGN](https://github.com/garnizeh-labs/nexus/blob/main/docs/AUDIT_DESIGN.md) | Auditing (P3) | How does the Audit Worker verify integrity offline? |
 | [OBSERVABILITY_DESIGN](OBSERVABILITY_DESIGN.md) | Telemetry | How do spans, metrics, and logs flow to Grafana/Jaeger? |
-| [FEDERATION_DESIGN](FEDERATION_DESIGN.md) | Multi-server (P4) | How do entities migrate between clusters? |
+| [FEDERATION_DESIGN](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md) | Multi-server (P4) | How do entities migrate between clusters? |
 | [PLATFORM_DESIGN](PLATFORM_DESIGN.md) | SDK/Stable contracts | What is the guaranteed public API for integrators? |
 | [PRIORITY_CHANNELS_DESIGN](PRIORITY_CHANNELS_DESIGN.md) | Priority multiplexing | How are Data Plane messages prioritized, shed, and routed? |
 
@@ -197,8 +197,8 @@ the game loop.
 
 Corresponding docs:
 
-- Control Plane → [CONTROL_PLANE_DESIGN.md](CONTROL_PLANE_DESIGN.md)
-- Data Plane → [TRANSPORT_DESIGN.md](TRANSPORT_DESIGN.md) + [ENGINE_DESIGN.md](ENGINE_DESIGN.md)
+- Control Plane → [CONTROL_PLANE_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/CONTROL_PLANE_DESIGN.md)
+- Data Plane → [TRANSPORT_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/TRANSPORT_DESIGN.md) + [ENGINE_DESIGN.md](ENGINE_DESIGN.md)
 
 ---
 
@@ -458,7 +458,7 @@ sequenceDiagram
     GW->>GW: reconcile:<br/>1. rollback to tick 1334<br/>2. re-apply inputs 1335, 1336, 1337<br/>3. |predicted - auth| = 0.08m<br/>4. lerp over 5 frames (< 0.5m threshold)
 ```
 
-> **Canonical Source:** See [INPUT_PIPELINE_DESIGN.md](INPUT_PIPELINE_DESIGN.md) for the extensible `InputSchema` trait, `InputMapper`, validation layers, rate limiting, and the `InputSchemaRegistry` that generalizes this flow to non-game inputs (text edits, trade orders, etc.).
+> **Canonical Source:** See [INPUT_PIPELINE_DESIGN.md](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/INPUT_PIPELINE_DESIGN.md) for the extensible `InputSchema` trait, `InputMapper`, validation layers, rate limiting, and the `InputSchemaRegistry` that generalizes this flow to non-game inputs (text edits, trade orders, etc.).
 
 ---
 
@@ -996,16 +996,16 @@ flowchart TD
 
 | Term | Definition | Canonical doc |
 |---|---|---|
-| **Data Plane** | Real-time UDP pipeline running the game tick at 60 Hz | [TRANSPORT_DESIGN §2](TRANSPORT_DESIGN.md#2-dual-plane-topology) |
-| **Control Plane** | gRPC services for auth, matchmaking, inventory — latency accepted | [CONTROL_PLANE_DESIGN §2](CONTROL_PLANE_DESIGN.md#2-control-plane-vs-data-plane) |
+| **Data Plane** | Real-time UDP pipeline running the game tick at 60 Hz | [TRANSPORT_DESIGN §2](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/TRANSPORT_DESIGN.md#2-dual-plane-topology) |
+| **Control Plane** | gRPC services for auth, matchmaking, inventory — latency accepted | [CONTROL_PLANE_DESIGN §2](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/CONTROL_PLANE_DESIGN.md#2-control-plane-vs-data-plane) |
 | **Tick** | One iteration of the game loop (16.6 ms at 60 Hz) | [ENGINE_DESIGN §4](ENGINE_DESIGN.md#4-the-trait-facade--core-abstraction-layer) |
 | **Trait Triad** | `GameTransport`, `WorldState`, `Encoder` — 3 traits that isolate every external subsystem | [PLATFORM_DESIGN §3](PLATFORM_DESIGN.md#3-stable-api-surface--the-trait-triad) |
 | **NetworkId** | Globally unique `u64` assigned by the server to each replicated entity | [ENGINE_DESIGN §6](ENGINE_DESIGN.md#6-entity-identity-system) |
-| **ClientId** | `u64` assigned by the transport to each connected client session | [TRANSPORT_DESIGN §3](TRANSPORT_DESIGN.md#3-the-gametransport-trait) |
+| **ClientId** | `u64` assigned by the transport to each connected client session | [TRANSPORT_DESIGN §3](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/TRANSPORT_DESIGN.md#3-the-gametransport-trait) |
 | **ReplicationEvent** | `{network_id, component_kind, payload, tick}` — delta of a component that changed | [ENGINE_DESIGN §4.3](ENGINE_DESIGN.md#43-core-protocol-types) |
 | **SuspicionScore** | `u32` per entity that governs audit intensity (0=Baseline, 500+=Critical) | [SECURITY_DESIGN §8](SECURITY_DESIGN.md#8-suspicionscore-system) |
 | **Persistence Sink** | Separate Tokio task that receives `EventBatch` via `mpsc` and bulk-inserts to DB | [PERSISTENCE_DESIGN §3](PERSISTENCE_DESIGN.md#3-the-persistence-sink--cpuio-decoupling) |
-| **SharedArrayBuffer** | Zero-copy shared buffer between Game Worker and Render Worker in the browser | [CLIENT_DESIGN §6](CLIENT_DESIGN.md#6-sharedarraybuffer--zero-copy-state-bridge) |
+| **SharedArrayBuffer** | Zero-copy shared buffer between Game Worker and Render Worker in the browser | [CLIENT_DESIGN §6](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/CLIENT_DESIGN.md#6-sharedarraybuffer--zero-copy-state-bridge) |
 | **MerkleChainState** | ECS component with `previous_hash` + `suspicion_score` for cryptographic integrity | [ECS_DESIGN §6](ECS_DESIGN.md#6-zero-trust-entity-hashing) |
 | **Stage N** | One of 5 sequential tick stages: Poll, Apply, Simulate, Extract, Send | [ENGINE_DESIGN §5](ENGINE_DESIGN.md#5-data-oriented-state-replication-crp) |
 

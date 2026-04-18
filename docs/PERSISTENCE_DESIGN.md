@@ -40,7 +40,7 @@ The ECS simulation is CPU-bound and latency-sensitive. Databases are IO-bound an
 
 The persistence model is **Event Sourcing**: the source of truth is not a current state table but an append-only ledger of every `ReplicationEvent` emitted by the ECS. Current state is a derived view, computable from the ledger at any tick. Snapshots accelerate reconstruction but are never the source of truth.
 
-See [PROTOCOL_DESIGN.md](PROTOCOL_DESIGN.md) for the canonical definition of `ReplicationEvent` and associated types.
+See [PROTOCOL_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/PROTOCOL_DESIGN.md) for the canonical definition of `ReplicationEvent` and associated types.
 
 ### Storage Tier Summary
 
@@ -584,7 +584,7 @@ AETHERIS_ICE_EXPORT_ENABLED=true
 - **Persistence Sink**: The asynchronous actor responsible for writing data to persistent storage.
 - **Snapshot**: A point-in-time capture of an entity's full state discarded periodically.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 

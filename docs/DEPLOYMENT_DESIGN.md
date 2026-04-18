@@ -76,7 +76,7 @@ The server binary is a single statically-linked executable (< 50 MB) that requir
 
 ### 2.2 Multi-Region (P4 — Federation)
 
-Each region is an independent Aetheris deployment behind a Global Coordinator (CockroachDB). See [FEDERATION_DESIGN.md](FEDERATION_DESIGN.md).
+Each region is an independent Aetheris deployment behind a Global Coordinator (CockroachDB). See [FEDERATION_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md).
 
 ---
 
@@ -364,7 +364,7 @@ Each game server instance is single-threaded (tick pipeline) with async I/O (Tok
 
 ### 12.2 Horizontal (P4 — Federation)
 
-Multiple independent server instances, each managing a shard (region/zone). A Global Coordinator handles cross-shard entity hand-off. See [FEDERATION_DESIGN.md](FEDERATION_DESIGN.md).
+Multiple independent server instances, each managing a shard (region/zone). A Global Coordinator handles cross-shard entity hand-off. See [FEDERATION_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md).
 
 ### 12.3 Auto-Scaling Signals
 
@@ -449,7 +449,7 @@ Game state is not persisted across server restarts in P1. Clients reconnect and 
 - **Readiness Probe**: Kubernetes health check that determines if a pod should receive traffic.
 - **OTLP**: OpenTelemetry Protocol for trace/metric export.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 

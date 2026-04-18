@@ -418,7 +418,7 @@ P1 performs minimal validation — parse failures fall back to defaults:
 - **Hot Reload**: Ability to update configuration at runtime without restarting the server.
 - **OTLP**: OpenTelemetry Protocol — the gRPC-based protocol for exporting trace spans.
 
-[Full Glossary Document](../GLOSSARY.md)
+[Full Glossary Document](https://github.com/garnize/aetheris/blob/main/docs/GLOSSARY.md)
 
 ---
 
