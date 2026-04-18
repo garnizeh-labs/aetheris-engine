@@ -37,8 +37,8 @@ def main():
     
     all_files = []
     for root, dirs, files in os.walk(docs_root):
-        if '.git' in root or 'target' in root or 'jemalloc' in root or 'node_modules' in root or 'pkg' in root:
-            continue
+        # Prune excluded directories in-place to avoid descending into them
+        dirs[:] = [d for d in dirs if d not in {'.git', 'target', 'jemalloc', 'node_modules', 'pkg'}]
         for f in files:
             all_files.append(os.path.normpath(os.path.join(root, f)))
 

@@ -1,0 +1,19 @@
+name: Minimal Features Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-minimal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Rust Toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # 1.95.0
+        with:
+          toolchain: 1.95.0
+      - name: Check Minimal Features
+        run: cargo check -p aetheris-engine --no-default-features

@@ -1,0 +1,106 @@
+[package]
+name = "aetheris-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+# Protocol (published — garnizeh-labs/aetheris-protocol)
+aetheris-protocol = { workspace = true, features = ["grpc"] }
+aetheris-encoder-serde = { workspace = true, optional = true }
+aetheris-encoder-bitpack = { workspace = true, optional = true }
+
+# Internal (optional, gated by feature flags)
+aetheris-ecs-custom = { workspace = true, optional = true }
+
+tracing = { workspace = true }
+async-trait = { workspace = true }
+
+# gRPC — native TLS via ring (tls-aws-lc is the alternative)
+# NOTE: In tonic 0.13+, the monolithic 'tls' feature was split into
+#       'tls-ring' and 'tls-aws-lc'; we use ring for maximum compatibility.
+tonic = { workspace = true, features = [
+    "transport",
+    "tls-ring",
+    "tls-webpki-roots",
+] }
+rustls = { workspace = true }
+tonic-web = { workspace = true }
+
+ulid = { workspace = true, features = ["std"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dashmap = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+tower-http = { workspace = true }
+
+# Auth & Security (server-only, not in workspace — no other crate uses these)
+rusty_paseto = { version = "0.7", features = ["v4_local"] }
+openidconnect = "4.0"
+blake2 = "0.10"
+subtle = "2.5"
+lettre = { version = "0.11", default-features = false, features = [
+    "tokio1-rustls-tls",
+    "smtp-transport",
+    "builder",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+tokio-stream = { workspace = true }
+tracing-subscriber = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+tikv-jemallocator = { workspace = true }
+tikv-jemalloc-ctl = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+bevy_ecs = { workspace = true }
+
+aetheris-transport-renet = { workspace = true, optional = true }
+aetheris-transport-webtransport = { workspace = true, optional = true }
+aetheris-ecs-bevy = { workspace = true, optional = true }
+aetheris-transport-quinn = { workspace = true, optional = true }
+
+[dev-dependencies]
+aetheris-protocol = { workspace = true, features = ["test-utils"] }
+rand.workspace = true
+
+[features]
+default = ["phase1"]
+phase1 = [
+    "dep:aetheris-transport-renet",
+    "dep:aetheris-transport-webtransport",
+    "dep:aetheris-ecs-bevy",
+    "dep:aetheris-encoder-serde",
+]
+phase3 = [
+    "dep:aetheris-transport-quinn",
+    "dep:aetheris-ecs-custom",
+    "dep:aetheris-encoder-bitpack",
+]
+
+[package.metadata.cargo-udeps.ignore]
+normal = [
+    "aetheris-transport-renet",
+    "metrics-exporter-prometheus",
+    "opentelemetry",
+    "opentelemetry-otlp",
+    "opentelemetry_sdk",
+    "tikv-jemallocator",
+    "tikv-jemalloc-ctl",
+    "tracing-opentelemetry",
+]

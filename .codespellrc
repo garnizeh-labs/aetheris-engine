@@ -1,0 +1,6 @@
+[codespell]
+skip = *.json,*.bin,*.lock,./target,./.git,./node_modules
+ignore-words-list = aetheris,bevy,serde,wasm,otlp,promql,logql,statics,unsecure,crate,lod,implementors,implementers,implementer,implementor,lode,ore
+quiet-level = 2
+check-filenames =
+check-hidden =

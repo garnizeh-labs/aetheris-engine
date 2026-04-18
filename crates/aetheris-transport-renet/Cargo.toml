@@ -1,0 +1,22 @@
+[package]
+name = "aetheris-transport-renet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+aetheris-protocol = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+renet = { workspace = true }
+renet_netcode = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time"] }

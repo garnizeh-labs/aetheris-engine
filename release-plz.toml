@@ -1,0 +1,4 @@
+[workspace]
+# Use the existing cliff.toml for changelog generation
+changelog_config = "cliff.toml"
+# The default changelog path is CHANGELOG.md

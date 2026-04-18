@@ -11,25 +11,33 @@ Authoritative, tick-based, deterministic simulation engine — spatial hashing, 
 > 🚀 **Latest Milestone:** **Architecture Extraction (M10145) in progress.** Decoupling the simulation core from the legacy monorepo.
 
 [![CI](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml)
-[![Rust Version](https://img.shields.io/badge/rust-1.94%2B-blue.svg?logo=rust)](https://www.rust-lang.org/)
+[![Rust Version](https://img.shields.io/badge/rust-1.95.0%2B-blue.svg?logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Quickstart
 
 ```bash
-# 1. Run quality gate (fmt, clippy, tests, docs)
+# 1. Run quality gate (fmt, clippy, tests, security, docs)
+#    MUST PASS BEFORE OPENING ANY PR
 just check
 
-# 2. Build local documentation
-just docs
+# 2. Run the FULL CI gate (includes udeps and strict docs)
+just check-all
+
+# 3. Synchronize formatting and apply clippy suggestions
+just fix
 ```
 
 ### 🛠️ Common Tasks
 
 | Command | Category | Description |
 | :--- | :--- | :--- |
-| `just check` | **Quality** | Complete PR validation: Linters, tests, and documentation audit. |
-| `just docs` | **Doc** | Generate technical design and API documentation. |
+| `just check` | **Quality** | Fast local validation: fmt, clippy, unit tests, security, and docs audit. |
+| `just check-all` | **CI** | Comprehensive validation: includes `udeps` and strict rustdoc checks. |
+| `just fix` | **Lint** | Automatically formats code and applies non-breaking clippy fixes. |
+| `just udeps` | **Lint** | Checks for unused dependencies (requires pinned nightly). |
+| `just semver` | **Release** | Checks semver compatibility for library crates before a release. |
+| `just docs` | **Doc** | Generates the official API documentation. |
 
 For a full list of commands, run `just --list`.
 
