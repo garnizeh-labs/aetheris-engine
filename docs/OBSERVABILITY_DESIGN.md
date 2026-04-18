@@ -1,4 +1,5 @@
----Version: 1.0.0
+---
+Version: 1.0.0
 Status: Phase 1 — MVP
 Phase: P1
 Last Updated: 2026-04-15

@@ -1,4 +1,5 @@
----Version: 0.1.0-draft
+---
+Version: 0.1.0-draft
 Status: Phase 1 — Proposed
 Phase: All Phases
 Last Updated: 2026-04-18

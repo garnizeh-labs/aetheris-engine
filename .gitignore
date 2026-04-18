@@ -1,0 +1,26 @@
+# --- Rust / Cargo ---
+target/
+Cargo.lock
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Aetheris Local Infrastructure ---
+/docker/data
+/logs/*.log
+/benches/*.old
+
+# --- Environmental Config ---
+.env
+.env.local
+node_modules/
+pkg/
+crates/aetheris-client-wasm/target/dev-certs/
+/benches/baseline.local.json
