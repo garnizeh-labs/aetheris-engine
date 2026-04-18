@@ -1,0 +1,2 @@
+# Enforce that all functions returning Result are handled
+warn-on-all-wildcard-imports = true

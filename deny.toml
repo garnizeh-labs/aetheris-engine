@@ -1,0 +1,45 @@
+# denylist configuration
+# Synchronized with .cargo/audit.toml; keep both ignore lists in sync.
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "ISC",                 # Required by 'untrusted' (ring dep)
+    "CDLA-Permissive-2.0", # Required by 'webpki-root-certs' (rustls-platform-verifier dep)
+    "BSD-2-Clause",        # Required by 'zerocopy' and other system crates
+    "BSD-3-Clause",        # Required by various ecosystem crates
+    "Zlib",                # Required by 'miniz_oxide' and similar compression crates
+    "Unicode-3.0",         # Required by 'unicode-ident'
+    "CC0-1.0",             # Required by 'hexf-parse' (wgpu dependency)
+    "MPL-2.0",             # Required by 'webpki-roots' (openidconnect dep)
+    "0BSD",                # Required by 'quoted_printable' (lettre dep)
+]
+
+[advisories]
+# Report unmaintained crates across all dependency types (direct + transitive).
+unmaintained = "all"
+# Deny yanked crates — a yanked crate may have been pulled for a security reason.
+yanked = "deny"
+ignore = [
+    # rustls-pemfile: 1.x is unmaintained (transitive dep via tonic).
+    # Tracking: #1234 Revisit: 2026-06-01
+    "RUSTSEC-2025-0134",
+    # paste: unmaintained (transitive dep via tikv-jemalloc-ctl).
+    # Tracking: #1235 Revisit: 2026-06-01
+    "RUSTSEC-2024-0436",
+    # rsa: PKCS#1 v1.5 padding timing attack (transitive dep via tokio-rustls).
+    # Tracking: #1236 Revisit: 2026-06-01
+    "RUSTSEC-2023-0071",
+]
+
+[bans]
+# Warn on duplicates; promote to deny once P1 deps are stabilised.
+multiple-versions = "warn"
+
+[sources]
+# Only allow crates from crates.io. Disallow git sources and local paths
+# in production (workspace path deps are exempt by default).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
