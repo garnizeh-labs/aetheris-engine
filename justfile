@@ -50,7 +50,7 @@ docs-check:
 docs-strict:
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 
-# Pinned nightly for udeps (matches Aetheris workspace)
+# Pinned nightly for udeps / wasm (matches Aetheris workspace)
 wasm_nightly := "nightly-2025-07-01"
 
 # Check for unused dependencies (requires nightly; runs on main in CI)

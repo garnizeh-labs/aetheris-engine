@@ -30,11 +30,11 @@ version = "0.2.0"
 
 [[package]]
 name = "aetheris-encoder-bitpack"
-version = "0.2.1"
+version = "0.2.2"
 
 [[package]]
 name = "aetheris-encoder-serde"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "aetheris-protocol",
  "metrics",
@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "aetheris-protocol"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "prost",
