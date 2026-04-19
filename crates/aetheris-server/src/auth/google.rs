@@ -39,7 +39,29 @@ impl GoogleOidcClient {
 
         let provider_metadata = CoreProviderMetadata::discover_async(
             IssuerUrl::new("https://accounts.google.com".to_string())?,
-            &http_client,
+            &|req: openidconnect::HttpRequest| {
+                let client = http_client.clone();
+                async move {
+                    let resp = client
+                        .execute(req.try_into().map_err(|e| {
+                            openidconnect::HttpClientError::Other(format!("Reqwest error: {e}"))
+                        })?)
+                        .await
+                        .map_err(|e| openidconnect::HttpClientError::Reqwest(Box::new(e)))?;
+
+                    let status = resp.status();
+                    let headers = resp.headers().clone();
+                    let body = resp
+                        .bytes()
+                        .await
+                        .map_err(|e| openidconnect::HttpClientError::Reqwest(Box::new(e)))?;
+
+                    let mut http_resp = openidconnect::HttpResponse::new(body.to_vec());
+                    *http_resp.status_mut() = status;
+                    *http_resp.headers_mut() = headers;
+                    Ok::<_, openidconnect::HttpClientError<reqwest::Error>>(http_resp)
+                }
+            },
         )
         .await?;
 

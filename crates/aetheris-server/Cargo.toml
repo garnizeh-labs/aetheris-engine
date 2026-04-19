@@ -27,6 +27,7 @@ tonic = { workspace = true, features = [
     "transport",
     "tls-ring",
     "tls-webpki-roots",
+    "router",
 ] }
 rustls = { workspace = true }
 tonic-web = { workspace = true }

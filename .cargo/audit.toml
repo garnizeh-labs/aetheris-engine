@@ -1,0 +1,12 @@
+# cargo-audit configuration
+# Synchronized with deny.toml; keep both ignore lists in sync.
+
+[advisories]
+ignore = [
+    # rustls-pemfile: 1.x is unmaintained (transitive dep via tonic).
+    "RUSTSEC-2025-0134",
+    # paste: unmaintained (transitive dep via tikv-jemalloc-ctl).
+    "RUSTSEC-2024-0436",
+    # rsa: PKCS#1 v1.5 padding timing attack (transitive dep via tokio-rustls).
+    "RUSTSEC-2023-0071",
+]

@@ -63,7 +63,7 @@ async fn test_entity_hijacking_prevention() {
     let mut scheduler = TickScheduler::new(100, auth_service.clone());
 
     {
-        let mut t = state.transport.lock().await;
+        let t = state.transport.lock().await;
         t.inject_event(NetworkEvent::ClientConnected(cid_a));
         t.inject_event(NetworkEvent::ClientConnected(cid_b));
 
@@ -260,7 +260,6 @@ async fn test_grpc_message_size_limit() -> Result<(), Box<dyn std::error::Error>
     use aetheris_protocol::auth::v1::auth_service_client::AuthServiceClient;
     use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
     use std::net::SocketAddr;
-    use tonic::transport::Server;
 
     let auth_service =
         AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
@@ -271,7 +270,7 @@ async fn test_grpc_message_size_limit() -> Result<(), Box<dyn std::error::Error>
 
     let grpc_auth_service = auth_service.clone();
     tokio::spawn(async move {
-        Server::builder()
+        tonic::transport::Server::builder()
             .add_service(AuthServiceServer::new(grpc_auth_service).max_decoding_message_size(4096))
             .serve(addr)
             .await

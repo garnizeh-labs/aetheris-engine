@@ -73,12 +73,10 @@ impl AuthServiceImpl {
         let transport_key_str =
             std::env::var("TRANSPORT_PASETO_KEY").map_err(|_| "TRANSPORT_PASETO_KEY missing");
 
-        let bypass_enabled = std::env::var("AETHERIS_AUTH_BYPASS")
-            .map(|v| {
-                let v = v.to_lowercase();
-                v == "1" || v == "true" || v == "yes" || v == "on"
-            })
-            .unwrap_or(false);
+        let bypass_enabled = std::env::var("AETHERIS_AUTH_BYPASS").is_ok_and(|v| {
+            let v = v.to_lowercase();
+            v == "1" || v == "true" || v == "yes" || v == "on"
+        });
 
         if env == "production" {
             assert!(
@@ -282,8 +280,8 @@ impl AuthService for AuthServiceImpl {
 
         Ok(Response::new(OtpRequestAck {
             request_id,
-            expires_at: expires_at.timestamp() as u64,
-            retry_after_seconds: 0, // 0 on normal path per spec
+            expires_at_unix_ms: expires_at.timestamp() as u64,
+            retry_after_seconds: Some(0), // 0 on normal path per spec
         }))
     }
 
@@ -353,7 +351,7 @@ impl AuthService for AuthServiceImpl {
 
                     return Ok(Response::new(LoginResponse {
                         session_token: token,
-                        expires_at: exp,
+                        expires_at_unix_ms: exp,
                         player_id,
                         is_new_player,
                         login_method: LoginMethod::EmailOtp as i32,
@@ -384,7 +382,7 @@ impl AuthService for AuthServiceImpl {
 
                     Ok(Response::new(LoginResponse {
                         session_token: token,
-                        expires_at: exp,
+                        expires_at_unix_ms: exp,
                         player_id,
                         is_new_player,
                         login_method: LoginMethod::EmailOtp as i32,
@@ -430,7 +428,7 @@ impl AuthService for AuthServiceImpl {
 
                 Ok(Response::new(LoginResponse {
                     session_token: token,
-                    expires_at: exp,
+                    expires_at_unix_ms: exp,
                     player_id,
                     is_new_player,
                     login_method: LoginMethod::GoogleOidc as i32,
@@ -507,7 +505,7 @@ impl AuthService for AuthServiceImpl {
 
         Ok(Response::new(RefreshResponse {
             session_token: new_token,
-            expires_at: exp,
+            expires_at_unix_ms: exp,
         }))
     }
 
@@ -574,7 +572,7 @@ impl AuthService for AuthServiceImpl {
         Ok(Response::new(GoogleLoginNonceResponse {
             nonce_handle,
             nonce,
-            expires_at: expires_at.timestamp() as u64,
+            expires_at_unix_ms: expires_at.timestamp() as u64,
         }))
     }
 }

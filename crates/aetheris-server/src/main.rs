@@ -14,7 +14,6 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::http::{Method, header};
 use tonic::transport::{Identity, Server, ServerTlsConfig};
-use tonic_web::enable;
 use tower_http::cors::{Any, CorsLayer};
 
 #[cfg(feature = "phase1")]
@@ -40,12 +39,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
             .unwrap_or_else(|_| "http://localhost:4317".to_string());
 
-        let build_exporter = || -> Result<_, opentelemetry::trace::TraceError> {
+        let build_exporter = || -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
             use opentelemetry_otlp::WithExportConfig;
-            opentelemetry_otlp::SpanExporter::builder()
+            Ok(opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
                 .with_endpoint(&otlp_endpoint)
-                .build()
+                .build()?)
         };
 
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -53,12 +52,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match build_exporter() {
             Ok(exporter) => {
-                use opentelemetry_sdk::trace::TracerProvider;
-                let provider = TracerProvider::builder()
-                    .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-                    .with_resource(opentelemetry_sdk::Resource::new(vec![
-                        opentelemetry::KeyValue::new("service.name", "aetheris-server"),
-                    ]))
+                use opentelemetry_sdk::trace::SdkTracerProvider;
+                let provider = SdkTracerProvider::builder()
+                    .with_batch_exporter(exporter)
+                    .with_resource(
+                        opentelemetry_sdk::Resource::builder()
+                            .with_attributes(vec![opentelemetry::KeyValue::new(
+                                "service.name",
+                                "aetheris-server",
+                            )])
+                            .build(),
+                    )
                     .build();
                 let tracer = opentelemetry::trace::TracerProvider::tracer(&provider, "aetheris");
                 let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
@@ -313,7 +317,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 header::HeaderName::from_static("grpc-status-details-bin"),
             ]);
 
-        let mut builder = Server::builder().accept_http1(true).layer(cors);
+        let mut builder = Server::builder()
+            .accept_http1(true)
+            .layer(cors)
+            .layer(tonic_web::GrpcWebLayer::new());
 
         if use_tls {
             let (cert_path, key_path) = get_tls_paths();
@@ -365,7 +372,7 @@ fn register_services<L: Clone>(
     telemetry_service: AetherisTelemetryService,
 ) -> tonic::transport::server::Router<L> {
     builder
-        .add_service(enable(AuthServiceServer::new(auth_service)))
-        .add_service(enable(MatchmakingServiceServer::new(matchmaking_service)))
-        .add_service(enable(TelemetryServiceServer::new(telemetry_service)))
+        .add_service(AuthServiceServer::new(auth_service))
+        .add_service(MatchmakingServiceServer::new(matchmaking_service))
+        .add_service(TelemetryServiceServer::new(telemetry_service))
 }

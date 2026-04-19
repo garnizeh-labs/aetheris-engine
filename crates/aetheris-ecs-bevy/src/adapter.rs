@@ -170,7 +170,10 @@ impl WorldState for BevyWorldAdapter {
     }
 
     fn spawn_networked(&mut self) -> NetworkId {
-        let id = self.allocator.allocate();
+        let id = self
+            .allocator
+            .allocate()
+            .expect("NetworkId allocation failed (exhausted)");
         let entity = self.world.spawn(Networked(id)).id();
         self.bimap.insert(id, entity);
         #[allow(clippy::cast_precision_loss)]
@@ -227,7 +230,10 @@ impl WorldState for BevyWorldAdapter {
     }
 
     fn spawn_kind(&mut self, kind: u16, x: f32, y: f32, rot: f32) -> NetworkId {
-        let network_id = self.allocator.allocate();
+        let network_id = self
+            .allocator
+            .allocate()
+            .expect("NetworkId allocation failed (exhausted)");
         let entity = self
             .world
             .spawn((

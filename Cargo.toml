@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.95.0"
 authors = ["garnizeH Labs"]
@@ -16,17 +16,17 @@ categories = ["game-engines", "network-programming", "simulation"]
 
 [workspace.dependencies]
 # Internal Workspace Crates
-aetheris-server = { path = "crates/aetheris-server", version = "0.1.0" }
-aetheris-ecs-bevy = { path = "crates/aetheris-ecs-bevy", version = "0.1.0" }
-aetheris-ecs-custom = { path = "crates/aetheris-ecs-custom", version = "0.1.0" }
-aetheris-transport-renet = { path = "crates/aetheris-transport-renet", version = "0.1.0" }
-aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtransport", version = "0.1.0" }
-aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.1.0" }
+aetheris-server = { path = "crates/aetheris-server", version = "0.2.0" }
+aetheris-ecs-bevy = { path = "crates/aetheris-ecs-bevy", version = "0.2.0" }
+aetheris-ecs-custom = { path = "crates/aetheris-ecs-custom", version = "0.2.0" }
+aetheris-transport-renet = { path = "crates/aetheris-transport-renet", version = "0.2.0" }
+aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtransport", version = "0.2.0" }
+aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.2.0" }
 
 # Protocol (published — garnizeh-labs/aetheris-protocol)
-aetheris-protocol = "0.2.0"
-aetheris-encoder-serde = "0.2.0"
-aetheris-encoder-bitpack = "0.2.0"
+aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
+aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
+aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }
 
 # Core Traits & Utilities
 thiserror = "2.0.18"
@@ -88,7 +88,7 @@ axum = { version = "0.8.9", features = ["tokio"] }
 tower-http = { version = "0.6.8", features = ["cors"] }
 reqwest = { version = "0.13.2", default-features = false, features = [
     "json",
-    "rustls-tls",
+    "rustls",
 ] }
 dashmap = "6.1.0"
 serde_json = "1.0.138"

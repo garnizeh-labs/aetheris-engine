@@ -642,7 +642,7 @@ See the master [ROADMAP.md](https://github.com/garnize/aetheris/blob/main/docs/R
 | Question | Context | Status |
 |---|---|---|
 | **Congestion Control Algorithm** | Should we use BBR, CUBIC, or a custom Game-Optimized CC? | Addressed in [NETWORKING_DESIGN.md](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/NETWORKING_DESIGN.md) §7 |
-| **Asset Streaming Protocol** | How are large textures/meshes streamed over the Data Plane? | Addressed in [ASSET_STREAMING_DESIGN.md](ASSET_STREAMING_DESIGN.md) |
+| **Asset Streaming Protocol** | How are large textures/meshes streamed over the Data Plane? | Addressed in ASSET_STREAMING_DESIGN.md (Planned) |
 | **Server-Side Rendering (SSR)** | For analytics or headless validation, do we need a server-side wgpu context? | Addressed in [SSR_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/SSR_DESIGN.md) |
 
 ---

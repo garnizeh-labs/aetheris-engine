@@ -315,6 +315,7 @@ async fn test_client_connect_and_replication() {
         .lock()
         .await
         .inject_event(NetworkEvent::ClientConnected(cid));
+    state.transport.lock().await.connect(cid);
     state
         .transport
         .lock()
@@ -358,8 +359,10 @@ async fn test_client_connect_and_replication() {
         !packets.is_empty(),
         "Expected broadcast packets to have been received by client"
     );
-    assert_eq!(packets[0][0], ME::MOCK_SENTINEL);
-    assert_eq!(packets[0][1..], [1, 2, 3]);
+    let p = &packets[0];
+    assert_eq!(p[0], ME::MOCK_SENTINEL);
+    // New MockEncoder format: Header(19) + Payload
+    assert_eq!(&p[19..], &[1, 2, 3]);
 
     handle.abort();
 }
@@ -379,6 +382,7 @@ async fn test_full_integration_suite() {
         .lock()
         .await
         .inject_event(NetworkEvent::ClientConnected(cid));
+    state.transport.lock().await.connect(cid);
     state
         .transport
         .lock()
@@ -451,6 +455,7 @@ async fn test_consecutive_dropped_packets_interpolation() {
         .lock()
         .await
         .inject_event(NetworkEvent::ClientConnected(cid));
+    state.transport.lock().await.connect(cid);
     state
         .transport
         .lock()
@@ -500,11 +505,12 @@ async fn test_consecutive_dropped_packets_interpolation() {
 
     let tick1_packet = &all_packets[0];
     assert_eq!(tick1_packet[0], ME::MOCK_SENTINEL);
-    assert_eq!(tick1_packet[1], 1, "First packet should be tick 1");
+    // LSB of tick 1 is at index 11.
+    assert_eq!(tick1_packet[11], 1, "First packet should be tick 1");
 
     let tick7_packet = &all_packets[6];
     assert_eq!(tick7_packet[0], ME::MOCK_SENTINEL);
-    assert_eq!(tick7_packet[1], 7, "Seventh packet should be tick 7");
+    assert_eq!(tick7_packet[11], 7, "Seventh packet should be tick 7");
 
     handle.abort();
 }
@@ -579,6 +585,7 @@ async fn test_large_delta_fragmentation() {
         .lock()
         .await
         .inject_event(NetworkEvent::ClientConnected(cid));
+    state.transport.lock().await.connect(cid);
     state
         .transport
         .lock()

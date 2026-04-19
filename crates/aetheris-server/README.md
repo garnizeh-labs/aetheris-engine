@@ -1,23 +1,39 @@
-# aetheris-server
+# Aetheris Server
 
-The central authoritative simulation heart of the Aetheris Engine.
+The authoritative heart and high-precision orchestration layer of the Aetheris Engine.
 
-## Overview
+## The Heartbeat of the World — The Authoritative Scheduler
 
-`aetheris-server` provides the core authoritative simulation loop for the Aetheris multiplayer platform. It is responsible for deterministic tick scheduling, configuration management, and the high-performance bridging of the Simulation and Data Planes.
+`aetheris-server` is the core executable crate that drives the Aetheris simulation. It implements the high-performance **Tick Scheduler** — a deterministic loop designed to govern the authoritative simulation state at 60Hz. It is responsible for pollinating transport events, authenticating sessions, driving the ECS simulation stages, and broadcasting delta-compressed world updates.
 
-## Technical Specifications
+This crate serves as the primary infrastructure bridge, connecting the high-speed real-time simulation to world services via an integrated gRPC control plane.
 
-- **Role**: Authoritative Game Server
-- **Capabilities**: Multi-transport support (renet, quinn, wtransport), integrated gRPC control plane, and real-time telemetry.
+## The Three Pillars of the Server
 
-## Features
+1.  **Deterministic Tick Scheduling**: Governs the six-stage simulation lifecycle (Poll, Auth, Simulate, Extract, Encode, Send) with sub-millisecond precision.
+2.  **Infrastructure Orchestration**: Bridges multiple network transports (renet, quinn, wtransport) into a unified event pipeline.
+3.  **Observability & Telemetry**: First-class support for OpenTelemetry tracing and Prometheus metrics, providing deep visibility into simulation performance.
 
-- **Authoritative Tick Scheduler**: Ensures sub-millisecond precision for the 60Hz simulation heart.
-- **Multi-Transport Bridge**: Seamlessly routes events between native UDP (renet/quinn) and browser-native (WebTransport) connections.
-- **Observability**: Built-in Prometheus metrics and OpenTelemetry tracing for production monitoring.
-- **Control Plane**: Transactional authentication and matchmaking services via Axum and Tonic.
+## Architecture Highlights
+
+- **Auth-Stage Integration**: Integrated OIDC and PASETO session management gating the simulation pollinator.
+- **Dynamic Encoding**: Bridges the Aetheris Protocol traits to both rapid-iteration `rmp-serde` and Phase 3 bit-packed encoders.
+- **Telemetry Bridge**: Native integration with the Aetheris Observability stack for real-time monitoring of tick density and packet overhead.
 
 ## Usage
 
-For more details, see the [Engine Design Document](https://github.com/garnizeh-labs/aetheris-engine/blob/main/ENGINE_DESIGN.md).
+This crate is typically run as the main entry point for the Aetheris Cluster.
+
+```bash
+# Run the server in development mode
+cargo run -p aetheris-server
+
+# Run with Prometheus metrics enabled
+AETHERIS_PROMETHEUS_ADDR=0.0.0.0:9091 cargo run -p aetheris-server
+```
+
+For more details, see the [Architecture Design Document](../../docs/ENGINE_DESIGN.md).
+
+---
+
+License: MIT / Apache-2.0
