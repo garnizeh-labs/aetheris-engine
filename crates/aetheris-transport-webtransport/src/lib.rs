@@ -204,9 +204,9 @@ impl GameTransport for WebTransportBridge {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn poll_events(&mut self) -> Vec<NetworkEvent> {
+    async fn poll_events(&mut self) -> Result<Vec<NetworkEvent>, TransportError> {
         let mut events = self.events.lock().await;
-        events.drain(..).collect()
+        Ok(events.drain(..).collect())
     }
 
     async fn connected_client_count(&self) -> usize {
@@ -511,7 +511,7 @@ mod tests {
         while (connected_count < num_clients || message_count < num_clients)
             && start.elapsed() < Duration::from_secs(20)
         {
-            let events = server.poll_events().await;
+            let events = server.poll_events().await.unwrap();
             for event in events {
                 match event {
                     NetworkEvent::ClientConnected(_) => connected_count += 1,

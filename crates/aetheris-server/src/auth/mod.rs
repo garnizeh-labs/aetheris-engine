@@ -220,9 +220,9 @@ impl AuthServiceImpl {
             .map_err(|e| Status::internal(format!("{e:?}")))?;
 
         // Initialize session activity
-        self.session_activity.insert(jti, iat.timestamp());
+        self.session_activity.insert(jti, iat.timestamp_millis());
 
-        Ok((token, exp.timestamp() as u64))
+        Ok((token, exp.timestamp_millis() as u64))
     }
 }
 
@@ -280,7 +280,7 @@ impl AuthService for AuthServiceImpl {
 
         Ok(Response::new(OtpRequestAck {
             request_id,
-            expires_at_unix_ms: expires_at.timestamp() as u64,
+            expires_at_unix_ms: expires_at.timestamp_millis() as u64,
             retry_after_seconds: Some(0), // 0 on normal path per spec
         }))
     }
@@ -306,21 +306,13 @@ impl AuthService for AuthServiceImpl {
             Method::Otp(otp_req) => {
                 let (request_id, code) = (otp_req.request_id, otp_req.code);
 
-                let (status, delay) = if let Some(_e) = self.otp_store.get_mut(&request_id) {
-                    (None, false)
-                } else {
-                    (Some(Status::unauthenticated("Invalid credentials")), true)
-                };
+                // T100.20 — decisional delay before first store access to mitigate timing side-channels
+                tokio::time::sleep(std::time::Duration::from_millis(15)).await;
 
-                if delay {
-                    tokio::time::sleep(std::time::Duration::from_millis(15)).await;
-                }
-
-                if let Some(status) = status {
-                    return Err(status);
-                }
-
-                let mut entry = self.otp_store.get_mut(&request_id).unwrap();
+                let mut entry = self
+                    .otp_store
+                    .get_mut(&request_id)
+                    .ok_or_else(|| Status::unauthenticated("Invalid credentials"))?;
 
                 if self.bypass_enabled && entry.email == "smoke-test@aetheris.dev" {
                     if code == "000000" {
@@ -403,23 +395,18 @@ impl AuthService for AuthServiceImpl {
                     .as_ref()
                     .ok_or_else(|| Status::internal("Google OIDC not configured"))?;
 
-                let nonce = if let Some(entry) = self.otp_store.get(&google_req.nonce_handle) {
-                    entry.google_nonce.clone()
-                } else {
-                    None
-                };
-
-                let Some(nonce) = nonce else {
-                    return Err(Status::unauthenticated("Invalid nonce_handle"));
-                };
+                let nonce = self
+                    .otp_store
+                    .get(&google_req.nonce_handle)
+                    .and_then(|e| e.google_nonce.clone())
+                    .ok_or_else(|| Status::unauthenticated("Invalid nonce_handle"))?;
 
                 let claims = google_client.verify_token(&google_req.google_id_token, &nonce)?;
                 self.otp_store.remove(&google_req.nonce_handle);
-                let email = claims
-                    .email()
-                    .map(|e| e.to_string())
-                    .ok_or_else(|| Status::unauthenticated("Email missing from Google ID token"))?;
-                let player_id = Self::derive_player_id("google", &email);
+
+                // Use 'sub' (Subject) as the stable identifier for the player instead of email.
+                let identity = claims.subject().to_string();
+                let player_id = Self::derive_player_id("google", &identity);
 
                 // Check if new player
                 let is_new_player = self.player_registry.insert(player_id.clone(), ()).is_none();
@@ -541,7 +528,7 @@ impl AuthService for AuthServiceImpl {
             token: Some(QuicConnectToken {
                 paseto: token,
                 server_address: req.server_address,
-                expires_at_unix_ms: exp.timestamp().unsigned_abs() * 1000,
+                expires_at_unix_ms: exp.timestamp_millis() as u64,
                 client_id,
             }),
         }))
@@ -572,7 +559,7 @@ impl AuthService for AuthServiceImpl {
         Ok(Response::new(GoogleLoginNonceResponse {
             nonce_handle,
             nonce,
-            expires_at_unix_ms: expires_at.timestamp() as u64,
+            expires_at_unix_ms: expires_at.timestamp_millis() as u64,
         }))
     }
 }

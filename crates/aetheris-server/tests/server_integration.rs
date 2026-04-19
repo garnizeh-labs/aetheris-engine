@@ -197,9 +197,9 @@ impl GameTransport for TransportRef {
         let t = self.0.transport.lock().await;
         t.broadcast_unreliable(data).await
     }
-    async fn poll_events(&mut self) -> Vec<NetworkEvent> {
+    async fn poll_events(&mut self) -> Result<Vec<NetworkEvent>, aetheris_protocol::error::TransportError> {
         let mut t = self.0.transport.lock().await;
-        t.poll_events().await
+        Ok(t.poll_events().await.unwrap())
     }
     async fn connected_client_count(&self) -> usize {
         let t = self.0.transport.lock().await;

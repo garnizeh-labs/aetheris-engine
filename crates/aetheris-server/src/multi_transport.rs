@@ -87,12 +87,12 @@ impl GameTransport for MultiTransport {
         }
     }
 
-    async fn poll_events(&mut self) -> Vec<NetworkEvent> {
+    async fn poll_events(&mut self) -> Result<Vec<NetworkEvent>, TransportError> {
         let mut all_events = Vec::new();
         for transport in &mut self.transports {
-            all_events.extend(transport.poll_events().await);
+            all_events.extend(transport.poll_events().await?);
         }
-        all_events
+        Ok(all_events)
     }
 
     async fn connected_client_count(&self) -> usize {

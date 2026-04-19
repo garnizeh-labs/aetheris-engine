@@ -240,7 +240,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_err(|e| format!("Invalid ALLOWED_ORIGINS: {e}"))?,
             )
         } else {
-            CorsLayer::new().allow_origin(Any)
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_credentials(false)
         };
 
         let cors = cors
@@ -257,7 +259,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 header::HeaderName::from_static("grpc-status-details-bin"),
             ]);
 
-        let mut builder = Server::builder().accept_http1(true).layer(cors);
+        let mut builder = Server::builder()
+            .accept_http1(true)
+            .layer(cors)
+            .layer(tonic_web::GrpcWebLayer::new());
 
         if use_tls {
             let (cert_path, key_path) = get_tls_paths();

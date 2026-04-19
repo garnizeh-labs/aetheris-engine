@@ -108,10 +108,17 @@ impl TickScheduler {
 
         // Stage 1: Poll
         let t1 = Instant::now();
-        let events = transport
+        let events = match transport
             .poll_events()
             .instrument(debug_span!("stage1_poll"))
-            .await;
+            .await
+        {
+            Ok(e) => e,
+            Err(e) => {
+                error!(error = ?e, "Fatal transport error during poll; skipping tick");
+                return;
+            }
+        };
         metrics::histogram!("aetheris_stage_duration_seconds", "stage" => "poll")
             .record(t1.elapsed().as_secs_f64());
 

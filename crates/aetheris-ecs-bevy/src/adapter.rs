@@ -133,11 +133,11 @@ impl WorldState for BevyWorldAdapter {
 
             // 2. Resolve replicator (Hot path optimized via kind caching)
             let replicator = if last_kind == Some(update.component_kind) {
-                last_replicator.as_ref()
+                last_replicator
             } else {
                 last_kind = Some(update.component_kind);
                 last_replicator = self.replicators.get(&update.component_kind);
-                last_replicator.as_ref()
+                last_replicator
             };
 
             if let Some(replicator) = replicator {
