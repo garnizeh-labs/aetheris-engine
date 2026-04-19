@@ -105,7 +105,7 @@ impl IpRateLimiter {
         // Remove entries that haven't been seen in 10 minutes and are full
         self.limits.retain(|_ip, bucket| {
             let full = bucket.tokens >= self.max_rate - 0.1;
-            let idle = now.duration_since(bucket.last_refill) > Duration::from_mins(10);
+            let idle = now.duration_since(bucket.last_refill) > Duration::from_secs(10 * 60);
             !(full && idle)
         });
     }
@@ -280,7 +280,7 @@ impl GameTransport for RenetTransport {
                 .last_prune
                 .lock()
                 .map_err(|e| TransportError::Io(std::io::Error::other(e.to_string())))?;
-            if now.duration_since(*last_prune) > Duration::from_mins(1) {
+            if now.duration_since(*last_prune) > Duration::from_secs(60) {
                 let mut rate_limiter = self
                     .rate_limiter
                     .lock()
