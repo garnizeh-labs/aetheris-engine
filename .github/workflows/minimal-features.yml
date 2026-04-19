@@ -16,4 +16,4 @@ jobs:
         with:
           toolchain: 1.95.0
       - name: Check Minimal Features
-        run: cargo check -p aetheris-engine --no-default-features
+        run: cargo check --workspace --no-default-features

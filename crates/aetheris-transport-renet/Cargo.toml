@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description.workspace = true
+description = "MVP Renet-based transport layer for rapid-iteration game networking"
 repository.workspace = true
 readme.workspace = true
 

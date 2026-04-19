@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description.workspace = true
+description = "Bevy ECS integration for the Aetheris Protocol"
 repository.workspace = true
 readme.workspace = true
 
