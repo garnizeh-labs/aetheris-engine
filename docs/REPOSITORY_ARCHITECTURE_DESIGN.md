@@ -4,7 +4,7 @@ Status: Phase 1 — Proposed
 Phase: All Phases
 Last Updated: 2026-04-18
 Authors: Team (Antigravity)
-Spec References: [ENGINE_DESIGN, NEXUS_PLATFORM_DESIGN, PROTOCOL_DESIGN, SECURITY_DESIGN]
+Spec References: [ENGINE_DESIGN, PROTOCOL_DESIGN, SECURITY_DESIGN]
 Tier: 2
 ---
 
@@ -32,9 +32,9 @@ Tier: 2
 
 This document defines the multi-repository architecture for the Aetheris ecosystem and the strategy for evolving the current monorepo into a structured set of repositories organised by contract, license, and volatility.
 
-The project follows an **Open-Core model**: the protocol contracts, simulation engine, client runtime, and the flagship world (*Void Rush*) remain **Open Source (MIT / CC-BY)**. Advanced governance, global federation, and enterprise-grade security modules are maintained in a private repository (**`nexus`**) for commercial deployments under the **Nexus Plus** offering.
+The project follows an **Open-Core model**: the protocol contracts, simulation engine, client runtime, and the flagship world (*Void Rush*) remain **Open Source (MIT / CC-BY)**. Advanced governance, global federation, and enterprise-grade security modules are maintained in a separate repository (currently restricted) as part of a future **Professional** offering.
 
-The driving constraint is that the two tiers must remain **structurally compatible** — no forking of the engine. All commercial extensions are injected through Trait-based seams defined in the public protocol crate, so the authoritative simulation pipeline is identical in both tiers.
+The driving constraint is that the two tiers must remain **structurally compatible** — no forking of the engine. All advanced extensions are injected through Trait-based seams defined in the public protocol crate, so the authoritative simulation pipeline is identical in both tiers.
 
 ---
 
@@ -42,18 +42,18 @@ The driving constraint is that the two tiers must remain **structurally compatib
 
 ### 2.1 Why Split the Monorepo
 
-The current single-workspace `aetheris` monorepo is appropriate for the MVP phase where velocity matters more than boundary enforcement. As the project scales towards Nexus, three pressures emerge:
+The current single-workspace `aetheris` monorepo is appropriate for the MVP phase where velocity matters more than boundary enforcement. As the project scales, three pressures emerge:
 
 | Pressure | Risk if ignored |
 |---|---|
 | **License heterogeneity** | MIT code shipped alongside proprietary code in one repo creates legal ambiguity for contributors |
 | **Dependency volatility** | High-churn game logic (Void Rush balance) coupled with low-churn protocol traits slows down protocol stability guarantees |
-| **Security surface** | Nexus Pro modules (AI audit, enterprise SSO, CockroachDB federation) must not be exposed in a public repo even by accident |
+| **Security surface** | Advanced modules (AI audit, enterprise SSO, CockroachDB federation) must not be exposed in the core repo even by accident |
 
 ### 2.2 Design Goals
 
-- **G1** — No engine fork. The same simulation binary powers both Open Source and Nexus Pro deployments.
-- **G2** — Zero friction for community contributors. Public tiers must be self-sufficient (build, test, run) without access to private repositories.
+- **G1** — No engine fork. The same simulation binary powers both Open Source and Professional deployments.
+- **G2** — Zero friction for community contributors. Core tiers must be self-sufficient (build, test, run) without access to restricted repositories.
 - **G3** — Stable contract surface. `aetheris-protocol` changes must be rare and versioned semantically; downstream breakage must be catchable at compile time.
 - **G4** — Clean licensing. Each repository carries a single, unambiguous license file.
 - **G5** — Incremental migration. The split must be achievable in stages without a "big bang" repo restructure.
@@ -66,13 +66,13 @@ The ecosystem is organised into five functional tiers. Tiers 1–4 are public; T
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────────┐
-│  TIER 5 — nexus  (Private / Proprietary)                                 │
+│  TIER 5 — (Restricted / Proprietary)                                     │
 │                                                                           │
 │  AI Audit Worker · Global Federation Coordinator · Enterprise SSO · SSR  │
 │                                                                           │
 │  Injects into Tier 2 via Trait seams. Never modifies engine source.       │
 └────────────────────────────┬──────────────────────────────────────────────┘
-                             │ uses (private Crates.io registry)
+                             │ uses (restricted registry)
 ┌────────────────────────────▼──────────────────────────────────────────────┐
 │  TIER 4 — void-rush  (Public / CC-BY)                                    │
 │                                                                           │
@@ -109,7 +109,7 @@ The ecosystem is organised into five functional tiers. Tiers 1–4 are public; T
 
 **Volatility:** Very Low. Changes here are breaking by definition and require a semver major bump.
 
-**Rationale:** Isolating this crate means WASM clients, Rust servers, and private Nexus Pro modules all share the exact same binary contract without pulling in engine implementation dependencies. This is the single "pinning point" for ecosystem compatibility.
+**Rationale:** Isolating this crate means WASM clients, Rust servers, and Professional modules all share the exact same binary contract without pulling in engine implementation dependencies. This is the single "pinning point" for ecosystem compatibility.
 
 ### 3.2 Tier 2 — `aetheris-engine` (Public / MIT)
 
@@ -160,9 +160,9 @@ The ecosystem is organised into five functional tiers. Tiers 1–4 are public; T
 
 **Rationale:** A playable, well-documented reference world lowers the barrier for community contributors to understand the engine without reading implementation source.
 
-### 3.5 Tier 5 — `nexus` (Private / Proprietary)
+### 3.5 Tier 5 — (Restricted / Proprietary)
 
-**Role:** The Enterprise Repository. Commercial extensions injected via Trait seams.
+**Role:** The Enterprise Repository. Advanced extensions injected via Trait seams.
 
 **Contents:**
 
@@ -172,16 +172,16 @@ The ecosystem is organised into five functional tiers. Tiers 1–4 are public; T
 - Server-Side Rendering (SSR) snapshots for admin dashboards
 - Multi-tenant orchestrator
 
-**Volatility:** Medium. Commercial features evolve on longer cycles than game content.
+**Volatility:** Medium. Professional features evolve on longer cycles than game content.
 
-**Access:** Distributed to paying Nexus Plus customers via a private Crates.io-compatible registry. A customer's deployment binary is a thin shell that `use`s public engine crates and injects private implementations at the seam points.
+**Access:** [This module is not available yet].
 
 ---
 
 ## 4. Dependency Graph
 
 ```text
-nexus
+(Restricted Tier)
     ├── aetheris-engine   (Tier 2)
     └── aetheris-protocol (Tier 1)
 
@@ -199,7 +199,7 @@ aetheris-engine
 **Key invariants:**
 
 - `aetheris-client` never depends on `aetheris-engine`. The client knows only the protocol traits.
-- `nexus` never modifies Tier 1 or Tier 2 source — it only implements traits.
+- Tier 5 never modifies Tier 1 or Tier 2 source — it only implements traits.
 - Tier 4 (`void-rush`) is not a dependency of any other tier.
 
 ---
@@ -208,15 +208,15 @@ aetheris-engine
 
 The following table defines the feature split between the Open Source and commercial tiers.
 
-| Feature | Open Source (Core) | Nexus Plus (Pro) |
+| Feature | Open Source (Core) | Professional (Future) |
 |---|---|---|
 | **Simulation** | Authoritative 60 Hz pipeline | Identical + SSR snapshot API |
-| **Security** | Trait-based invariant clamping | AI Behavioral Audit (Track 2) |
+| **Security** | Trait-based invariant clamping | AI Behavioral Audit (Not available) |
 | **Scale** | Regional shard (single cluster) | Global topology (multi-region CockroachDB) |
 | **Authentication** | Google OAuth / Email OTP (PASETO) | Enterprise SSO (Okta, Azure AD, SAML 2.0) |
 | **Tenancy** | Single world per process | Multi-tenant orchestrator |
 | **Audit** | `NoOpAudit` (event log only) | `ProBehavioralAudit` + anomaly alerts |
-| **Support** | Community-driven (GitHub Issues) | SLA-guaranteed + dedicated Slack channel |
+| **Support** | Community-driven (GitHub Issues) | SLA-guaranteed (Not available) |
 | **Dashboard** | Playground sandbox | SSR admin snapshots + usage analytics |
 
 ### 5.1 What is Never Gated
@@ -235,7 +235,7 @@ The following capabilities are always Open Source regardless of customer tier. G
 
 All private features are injected through **Traits defined in `aetheris-protocol`** (Tier 1). This is the architectural guarantee that the engine is never forked.
 
-### 6.1 Pattern: `NoOp` defaults in `aetheris-engine`, `Pro` implementations in `nexus`
+### 6.1 Pattern: `NoOp` defaults in `aetheris-engine`, advanced implementations in restricted repo
 
 ```rust
 // Tier 1 — aetheris-protocol: defines the seam
@@ -251,7 +251,7 @@ impl AuditSink for NoOpAudit {
     fn flush(&self) -> Vec<AuditEvent> { vec![] }
 }
 
-// Tier 5 — nexus: injects the real implementation (Pro path)
+// Tier 5: injects the real implementation (Advanced path)
 pub struct ProBehavioralAudit { /* ML model, anomaly thresholds, ... */ }
 impl AuditSink for ProBehavioralAudit {
     fn record_mutation(&self, entity: NetworkId, mutation: &StateMutation) { /* ... */ }
@@ -276,7 +276,7 @@ Because `Pro` structs implement the same Trait as the `NoOp` defaults, the type 
 
 ## 7. Documentation Architecture
 
-Documentation follows the same Open-Core boundary as code. The governing rule is: **docs live with the code they describe**. A design document that covers a Pro seam implementation belongs in `nexus`; one that covers a public crate ships alongside that crate and is visible to all contributors.
+Documentation follows the same Open-Core boundary as code. The governing rule is: **docs live with the code they describe**. A design document that covers a Professional seam implementation belongs in the restricted repository; one that covers a public crate ships alongside that crate and is visible to all contributors.
 
 ### 7.1 Visibility Levels
 
@@ -286,7 +286,7 @@ Three visibility levels apply to every document in the ecosystem:
 |---|---|---|
 | **Public** | Community · Contributors · Customers | Repo `docs/`, GitHub Pages, or `docs.aetheris.io` |
 | **Internal** | Core team only | `docs/ideas/`; never published or indexed |
-| **Private** | Nexus Plus customers + core team | `nexus/docs/` (access-controlled) |
+| **Private** | Core team only | Restricted docs |
 
 ### 7.2 Document Distribution by Tier
 
@@ -328,7 +328,7 @@ Documents covering the authoritative simulation pipeline, spatial algorithms, an
 | `PERSISTENCE_DESIGN.md` ¹ | `docs/design/` | `aetheris-engine/docs/` |
 | `DEPLOYMENT_DESIGN.md` ¹ | `docs/design/` | `aetheris-engine/docs/` |
 
-> ¹ These documents describe both Open Source and Pro concerns. During migration they will be **split**: the OS sections remain in the public `aetheris-engine/docs/` file and a companion `*_PRO.md` extension is created in `nexus/docs/`.
+> ¹ These documents describe both Open Source and Professional concerns. During migration they will be **split**: the OS sections remain in the public `aetheris-engine/docs/` file and a companion `*_PRO.md` extension is created in the restricted repository.
 
 #### Tier 3 — `aetheris-client` (Public)
 
@@ -353,20 +353,14 @@ Game-specific documents: game design doc, ECS components, themed world specs, an
 | `THEME_WORLD_DESIGN.md` | `docs/design/` | `void-rush/docs/` |
 | `PLATFORM_DESIGN.md` | `docs/design/` | `void-rush/docs/` |
 
-#### Tier 5 — `nexus` (Private / Proprietary)
-
-Documents describing commercial Pro features. Access is restricted to Nexus Plus customers and the core team. These documents must **never** be committed to a public repository.
-
-| Document | Current path | Post-split location |
-|---|---|---|
-| `SSR_DESIGN.md` | `docs/design/` | `nexus/docs/` |
-| `FEDERATION_DESIGN.md` | `docs/design/` | `nexus/docs/` |
-| `AUDIT_DESIGN.md` | `docs/design/` | `nexus/docs/` |
-| `NEXUS_PLATFORM_DESIGN.md` | `docs/design/` | `nexus/docs/` |
-| `SECURITY_DESIGN_PRO.md` ² | (to be created) | `nexus/docs/` |
-| `OBSERVABILITY_DESIGN_PRO.md` ² | (to be created) | `nexus/docs/` |
-| `PERSISTENCE_DESIGN_PRO.md` ² | (to be created) | `nexus/docs/` |
-| `DEPLOYMENT_DESIGN_PRO.md` ² | (to be created) | `nexus/docs/` |
+| `SSR_DESIGN.md` | `docs/design/` | (Restricted) |
+| `FEDERATION_DESIGN.md` | `docs/design/` | (Restricted) |
+| `AUDIT_DESIGN.md` | `docs/design/` | (Restricted) |
+| `PLATFORM_SPEC_PRO.md` | `docs/design/` | (Restricted) |
+| `SECURITY_DESIGN_PRO.md` ² | (to be created) | (Restricted) |
+| `OBSERVABILITY_DESIGN_PRO.md` ² | (to be created) | (Restricted) |
+| `PERSISTENCE_DESIGN_PRO.md` ² | (to be created) | (Restricted) |
+| `DEPLOYMENT_DESIGN_PRO.md` ² | (to be created) | (Restricted) |
 
 > ² Pro-only companion files split from the documents marked ¹ above.
 
@@ -404,24 +398,7 @@ The following documents are strictly internal and must not be published to any p
 
 ### 7.4 Documentation Hosting (Post-Split)
 
-```text
-docs.aetheris.io  (public — community)
-├── /getting-started        ← shared cross-cutting docs
-├── /glossary
-├── /protocol               ← aetheris-protocol/docs/
-├── /engine                 ← aetheris-engine/docs/
-├── /client                 ← aetheris-client/docs/
-└── /void-rush              ← void-rush/docs/  (CC-BY attribution footer)
-
-nexus.aetheris.io/docs  (gated — Nexus Plus customers only)
-└── /pro
-    ├── /audit              ← AUDIT_DESIGN.md + companion docs
-    ├── /federation         ← FEDERATION_DESIGN.md + companion docs
-    ├── /ssr                ← SSR_DESIGN.md + companion docs
-    └── /deployment         ← DEPLOYMENT_DESIGN_PRO.md
-```
-
-The public site is generated by a CI pipeline in the `aetheris-engine` repository that pulls docs from the other public repos as Git submodules or a docs-aggregation workflow. The private site is generated by a separate CI pipeline in `nexus` and served behind the Nexus Plus authentication gate.
+[Documentation hosting details are not available yet.]
 
 ---
 
@@ -453,24 +430,18 @@ aetheris-protocol = "1.0"   # from crates.io
 aetheris-engine   = "1.0"   # from crates.io
 ```
 
-```toml
-# Cargo.toml in nexus (Phase 3+)
-[dependencies]
-aetheris-protocol = "1.0"   # from crates.io
-aetheris-engine   = "1.0"   # from crates.io
-# Pro-only private deps
-crdb-federation   = { version = "0.5", registry = "nexus-private" }
-```
-
-### 7.3 CI/CD Matrix
+aetheris-protocol = "1.0"   # from registry
+aetheris-engine   = "1.0"   # from registry
+# Professional modules (restricted)
+# ...
 
 | Repository | CI target | Registry |
 |---|---|---|
-| `aetheris-protocol` | Publish on tag → `crates.io` | Public |
-| `aetheris-engine` | Publish on tag → `crates.io` | Public |
-| `aetheris-client` | Build WASM → npm (optional) | Public |
-| `void-rush` | Integration test vs. engine | Public |
-| `nexus` | Internal CI + publish → Nexus registry | Private |
+| `aetheris-protocol` | Publish on tag | Public |
+| `aetheris-engine` | Publish on tag | Public |
+| `aetheris-client` | Build WASM | Public |
+| `void-rush` | Integration test | Public |
+| Tier 5 | Internal CI | Restricted |
 
 ### 7.4 Protocol Versioning Contract
 
@@ -508,11 +479,9 @@ The monorepo → multi-repo migration follows a phased approach to avoid disrupt
 - Extract client-side crates and Playground to `aetheris-client`.
 - Publish both to `crates.io`.
 
-### Phase D — Void Rush Extraction + Nexus Pro Bootstrap (Phase 3/4)
-
 - Move game-specific code to the `void-rush` repository.
-- Bootstrap `nexus` private repository with Pro seam implementations.
-- First Nexus Plus customer deployment.
+- Bootstrap restricted repository with advanced implementations.
+- [Phase not available yet].
 
 ---
 
@@ -546,16 +515,7 @@ The monorepo → multi-repo migration follows a phased approach to avoid disrupt
 - [ ] Migrate Tier 3 design documents to `aetheris-client/docs/`
 - [ ] Migrate Tier 4 design documents to `void-rush/docs/`
 - [ ] Split mixed-tier documents (`SECURITY_DESIGN`, `OBSERVABILITY_DESIGN`, `PERSISTENCE_DESIGN`, `DEPLOYMENT_DESIGN`) into public and `_PRO` variants
-- [ ] Set up public documentation site (`docs.aetheris.io`) aggregating all public-tier docs
-
-### Phase 4 — Nexus Plus Launch
-
-- [ ] Bootstrap `nexus` private repository
-- [ ] Implement `ProBehavioralAudit` and `GlobalFederationCoordinator`
-- [ ] Set up private Crates.io-compatible registry
-- [ ] First paying customer deployment
-- [ ] Migrate Tier 5 design documents to `nexus/docs/`
-- [ ] Set up gated documentation site (`nexus.aetheris.io/docs`) behind Nexus Plus authentication
+- [Phase not available yet]
 
 ---
 
@@ -563,7 +523,7 @@ The monorepo → multi-repo migration follows a phased approach to avoid disrupt
 
 | # | Question | Owner | Priority |
 |---|---|---|---|
-| OQ1 | Which registry to use for Nexus Pro private crates: self-hosted Cloudsmith, Gitea package registry, or JFrog Artifactory? | Infra | P2 |
+| OQ1 | Which registry to use for restricted crates? | Infra | P2 |
 | OQ2 | Should `void-rush` be a monorepo (content + code) or split into `void-rush-server` and `void-rush-assets`? | Game Team | P3 |
 | OQ3 | How do we handle `aetheris-protocol` patch releases when a Pro customer needs a hotfix but the public minor hasn't shipped? | Eng Lead | P3 |
 | OQ4 | License compatibility: can CC-BY `void-rush` assets be used by Pro customers in a proprietary derivative world? | Legal | P2 |
@@ -580,11 +540,8 @@ The monorepo → multi-repo migration follows a phased approach to avoid disrupt
 | **Seam** | A Trait-defined injection point where a `NoOp` default can be replaced with a Pro implementation without modifying engine source |
 | **Tier** | A functional grouping of repositories by contract stability, license, and volatility |
 | **`NoOp`** | A zero-cost default implementation of a seam trait; ships with the open source engine |
-| **Nexus Plus** | The commercial offering providing access to Tier 5 (`nexus`) implementations |
-| **Protocol crate** | `aetheris-protocol` — the single source of truth for all shared types and trait definitions |
-| **Semver** | Semantic Versioning (major.minor.patch) used to communicate breaking vs. additive changes |
-| **Registry** | A Crates.io-compatible package host; public for open source tiers, private for Nexus Pro |
-| **`nexus`** | The private repository containing all commercial Nexus Plus implementations |
+| **Professional** | Advanced modules containing proprietary implementations |
+| **registry** | A package host; public for open source tiers, restricted for Professional modules |
 | **Volatility** | The expected rate of change of a codebase; drives the decision of how tightly to couple repositories |
 
 ---
@@ -597,10 +554,10 @@ The monorepo → multi-repo migration follows a phased approach to avoid disrupt
 | D2 | `NoOp` defaults in public engine | Ensures the engine compiles and runs without any private dependency; contributors need no Pro access |
 | D3 | `void-rush` as CC-BY, not MIT | Game content (art direction, balance data) warrants attribution requirements that MIT does not enforce |
 | D4 | No `cfg!(feature = "pro")` in engine source | Feature flags in the engine would require Pro customers to build the engine from source, creating a security risk; instead, Pro is a separate binary that wires different trait impls |
-| D5 | Private SSR in Nexus Pro | SSR is infrastructure-heavy (GPU-on-server, snapshot scheduling); keeping it private avoids overwhelming OS contributors with complex ops requirements |
+| D5 | Restricted SSR | SSR is infrastructure-heavy (GPU-on-server, snapshot scheduling); keeping it restricted avoids overwhelming OS contributors |
 | D6 | `aetheris-client` has no dep on `aetheris-engine` | The client knows only the protocol traits; this prevents accidental server logic from leaking into WASM bundles |
 | D7 | Phased migration, no big-bang split | Incremental extraction preserves CI green status; each phase is independently shippable |
 | D8 | Open Source Void Rush | A playable, community-accessible proof-of-concept lowers the contributor barrier and validates the engine for complex MMO workloads in public |
 | D9 | Docs live with their code tier | Each tier's documentation ships in its own repository; this enforces the same open-core boundary as the code and prevents accidental disclosure of Pro feature details in public commits |
 | D10 | `docs/ideas/` is internal-only | Backlog and TODO items represent unvetted work; publishing them creates community expectations and may reveal strategic intent ahead of schedule |
-| D11 | Aggregate public docs from Git submodules | A single site (`docs.aetheris.io`) built from multiple public repos gives contributors a unified view without collapsing repository boundaries or mixing licenses |
+| D11 | [Not available yet] |

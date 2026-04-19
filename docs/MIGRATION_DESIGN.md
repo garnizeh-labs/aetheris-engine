@@ -60,7 +60,7 @@ Changes to the wire format (encoder schema), `ComponentKind` registry, or gRPC A
 
 ### 2.4 Entity Migrations (P4)
 
-Cross-shard entity hand-off during federation. Live entities are frozen, serialized, transferred to a destination cluster, and respawned. See [FEDERATION_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md).
+Cross-shard entity hand-off during federation. Live entities are frozen, serialized, transferred to a destination cluster, and respawned. [Restricted module not available yet].
 
 ---
 

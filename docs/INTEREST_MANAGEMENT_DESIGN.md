@@ -4,7 +4,7 @@ Status: Phase 1 — MVP / Phase 3 — Full Implementation
 Phase: P1 | P3
 Last Updated: 2026-04-16
 Authors: Team (Antigravity)
-Spec References: [ENGINE_DESIGN, SPATIAL_PARTITIONING_DESIGN, PRIORITY_CHANNELS_DESIGN, PROTOCOL_DESIGN, ROOM_AND_INSTANCE_DESIGN, NEXUS_PLATFORM_DESIGN]
+Spec References: [ENGINE_DESIGN, SPATIAL_PARTITIONING_DESIGN, PRIORITY_CHANNELS_DESIGN, PROTOCOL_DESIGN, ROOM_AND_INSTANCE_DESIGN]
 Tier: 2
 ---
 
@@ -16,7 +16,7 @@ Interest Management answers a single question: **which entities should each clie
 
 The answer is determined by composing multiple **filter layers** — spatial proximity, room membership, tenant isolation, priority channel radius, and custom application filters — into a per-client **interest set**. This document defines the canonical model for computing, maintaining, and transitioning interest sets.
 
-Previous Aetheris docs described spatial AoI filtering ([SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md)) and priority-based radius ([PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) §9) as separate mechanisms. This document unifies them into a single composable pipeline that serves both games (Void Rush) and non-game platforms (Nexus) identically.
+Previous Aetheris docs described spatial AoI filtering ([SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md)) and priority-based radius ([PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) §9) as separate mechanisms. This document unifies them into a single composable pipeline that serves both games (Void Rush) and non-game platforms identically.
 
 ### The Interest Equation
 
@@ -50,7 +50,7 @@ Interest Management answers a single question: **which entities should each clie
 
 The answer is determined by composing multiple **filter layers** — spatial proximity, room membership, tenant isolation, priority channel radius, and custom application filters — into a per-client **interest set**. This document defines the canonical model for computing, maintaining, and transitioning interest sets.
 
-Previous Aetheris docs described spatial AoI filtering ([SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md)) and priority-based radius ([PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) §9) as separate mechanisms. This document unifies them into a single composable pipeline that serves both games (Void Rush) and non-game platforms (Nexus) identically.
+Previous Aetheris docs described spatial AoI filtering ([SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md)) and priority-based radius ([PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) §9) as separate mechanisms. This document unifies them into a single composable pipeline that serves both games (Void Rush) and non-game platforms identically.
 
 ### The Interest Equation
 
@@ -71,7 +71,7 @@ Without a unified model, filtering logic scatters across the codebase:
 - `extract_deltas()` checks spatial distance (hardcoded in ECS adapter)
 - Priority channel shedding reduces update frequency (hardcoded in transport)
 - Room membership adds/removes entities (hardcoded in game logic)
-- Tenant isolation filters by `TenantId` (hardcoded in Nexus platform layer)
+- Tenant isolation filters by `TenantId` (hardcoded in the enterprise platform layer)
 
 Each filter makes independent decisions. Interactions between filters are undefined. Bugs arise when:
 
@@ -154,7 +154,7 @@ let interest_pipeline = InterestPipeline::builder()
     .add_filter(PriorityRadiusFilter::new(channel_registry.clone()))
     .build();
 
-// Nexus Corporate Campus — platform server
+// Enterprise Corporate Campus — platform server
 let interest_pipeline = InterestPipeline::builder()
     .add_filter(TenantIsolationFilter::new())   // MUST be first for security
     .add_filter(SpatialAoiFilter::new(spatial_config))
@@ -162,7 +162,7 @@ let interest_pipeline = InterestPipeline::builder()
     .add_filter(PriorityRadiusFilter::new(channel_registry.clone()))
     .build();
 
-// Nexus Trading Floor — platform server
+// Enterprise Trading Floor — platform server
 let interest_pipeline = InterestPipeline::builder()
     .add_filter(TenantIsolationFilter::new())
     .add_filter(SpatialAoiFilter::new(spatial_config))
@@ -326,7 +326,7 @@ impl InterestFilter for PriorityRadiusFilter {
 Games and platforms can register custom filters via the `InterestFilter` trait:
 
 ```rust
-/// Example: Nexus trading platform — clients only see tickers they've subscribed to.
+/// Example: Enterprise trading platform — clients only see tickers they've subscribed to.
 pub struct TickerSubscriptionFilter;
 
 impl InterestFilter for TickerSubscriptionFilter {
@@ -573,10 +573,10 @@ aetheris-protocol (InterestFilter trait, ClientInterestSet, InterestPipeline)
     │
     ├── aetheris-server (composes pipeline, runs in extract stage)
     ├── aetheris-ecs-bevy (SpatialAoiFilter, RoomMembershipFilter)
-    └── aetheris-nexus-sdk [P3] (TenantIsolationFilter, TickerSubscriptionFilter)
+    └── aetheris-enterprise-sdk [Not available yet] (TenantIsolationFilter, TickerSubscriptionFilter)
 ```
 
-The `InterestFilter` trait and `InterestPipeline` live in `aetheris-protocol` alongside the other core traits. Filter implementations live in the crate that owns the domain knowledge (ECS crate for spatial, Nexus SDK for tenant, server for composition).
+The `InterestFilter` trait and `InterestPipeline` live in `aetheris-protocol` alongside the other core traits. Filter implementations live in the crate that owns the domain knowledge (ECS crate for spatial, Enterprise SDK for tenant, server for composition).
 
 ---
 

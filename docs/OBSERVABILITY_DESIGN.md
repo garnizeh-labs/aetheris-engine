@@ -126,7 +126,7 @@ Security-critical events (e.g., `SuspicionLevel` escalation) use a specific `aud
 
 
 
-> **Pro:** This section is continued in the private companion document available to Nexus Plus customers.
+> **Status:** This module is not available yet.
 ---
 
 ## 7. Performance Contracts

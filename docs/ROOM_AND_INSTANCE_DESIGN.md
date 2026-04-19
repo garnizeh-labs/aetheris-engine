@@ -4,7 +4,7 @@ Status: Phase 1 — MVP / Phase 3 — Full Implementation
 Phase: P1 | P3
 Last Updated: 2026-04-16
 Authors: Team (Antigravity)
-Spec References: [ENGINE_DESIGN, SPATIAL_PARTITIONING_DESIGN, INTEREST_MANAGEMENT_DESIGN, FEDERATION_DESIGN, NEXUS_PLATFORM_DESIGN, VOID_RUSH_GDD]
+Spec References: [ENGINE_DESIGN, SPATIAL_PARTITIONING_DESIGN, INTEREST_MANAGEMENT_DESIGN, VOID_RUSH_GDD]
 Tier: 2
 ---
 
@@ -17,9 +17,9 @@ A **Room** is a bounded spatial region within the game world that carries additi
 This document defines the canonical Room abstraction used by both games and platforms:
 
 - **Void Rush:** Sectors, safe zones, dungeon instances, arena lobbies.
-- **Nexus Corporate:** Meeting rooms, department floors, auditoriums.
-- **Nexus Education:** Classrooms, exam halls, libraries.
-- **Nexus Finance:** Trading floors, private deal rooms.
+- **Professional Corporate:** Meeting rooms, department floors, auditoriums.
+- **Professional Education:** Classrooms, exam halls, libraries.
+- **Professional Finance:** Trading floors, private deal rooms.
 
 Rooms are **ECS entities** — they are not a separate system or data structure. A Room is simply an entity with `RoomDefinition` + `Position` + `RoomBounds` components. This means rooms benefit from the same replication, persistence, audit, and spatial indexing infrastructure as all other entities. No special-case code exists outside of the Room system's ECS systems.
 
@@ -53,9 +53,9 @@ A **Room** is a bounded spatial region within the game world that carries additi
 This document defines the canonical Room abstraction used by both games and platforms:
 
 - **Void Rush:** Sectors, safe zones, dungeon instances, arena lobbies.
-- **Nexus Corporate:** Meeting rooms, department floors, auditoriums.
-- **Nexus Education:** Classrooms, exam halls, libraries.
-- **Nexus Finance:** Trading floors, private deal rooms.
+- **Professional Corporate:** Meeting rooms, department floors, auditoriums.
+- **Professional Education:** Classrooms, exam halls, libraries.
+- **Professional Finance:** Trading floors, private deal rooms.
 
 Rooms are **ECS entities** — they are not a separate system or data structure. A Room is simply an entity with `RoomDefinition` + `Position` + `RoomBounds` components. This means rooms benefit from the same replication, persistence, audit, and spatial indexing infrastructure as all other entities. No special-case code exists outside of the Room system's ECS systems.
 
@@ -184,7 +184,7 @@ let arena_id = world.spawn_networked(vec![
 ]);
 ```
 
-A Nexus meeting room:
+An enterprise meeting room:
 
 ```rust
 let meeting_id = world.spawn_networked(vec![
@@ -357,7 +357,7 @@ fn update_client_room_subscriptions(
 | **Lifetime** | Exists in ECS from server start to shutdown | Created on demand, destroyed when empty (after grace period) |
 | **Template** | No | Created by cloning a template room entity |
 | **Example (game)** | Safe Zone, Trading Post | Dungeon run, Arena match |
-| **Example (Nexus)** | Board Room 3A, Classroom 101 | Ad-hoc meeting, Breakout room |
+| **Example (Professional)** | Board Room 3A, Classroom 101 | Ad-hoc meeting, Breakout room |
 | **Persistence** | Stored in snapshot (PostgreSQL) | Not persisted — ephemeral |
 
 ### 6.2 Instance Spawning
@@ -482,7 +482,7 @@ Cross-shard room membership (remote participant in a room on another shard) is *
 
 The engine provides a minimal set of room behaviors. Applications compose these with custom components:
 
-| Room Type | Behavior | Game Example | Nexus Example |
+| Room Type | Behavior | Game Example | Professional Example |
 |---|---|---|---|
 | **Open** | Anyone can enter/exit freely | Safe Zone, Market | Lobby, Cafeteria |
 | **Gated** | Entry requires permission check | Guild Hall | Board Room, Trading Floor |
@@ -513,7 +513,7 @@ server.register_room_template("arena_5v5", RoomTemplate {
     cleanup_grace_ticks: 60 * 60, // 1 minute
 });
 
-// Nexus Corporate — register room templates
+// Professional Corporate — register room templates
 server.register_room_template("breakout_room", RoomTemplate {
     definition: RoomDefinition {
         name: "Breakout Room".into(),

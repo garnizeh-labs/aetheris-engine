@@ -12,14 +12,14 @@ Tier: 2
 
 ## Executive Summary
 
-Central nexus for engine subsystem communication and information flow.
+Central hub for engine subsystem communication and information flow.
 
 ## 1. Executive Summary
 
 The project has **12 design docs** covering transport, ECS, encoder, client, server,
 security, persistence, audit, federation, observability, control plane, and platform.
 
-This document serves as the **Integration Nexus**, defining how these individual
+This document serves as the **Integration Core**, defining how these individual
 subsystems exchange information, their dependency ordering, and the global tick
 pipeline's execution flow.
 Each one describes a specific responsibility boundary — and that is precisely why
@@ -45,9 +45,9 @@ each boundary exists where it does.
 | [CONTROL_PLANE_DESIGN](https://github.com/garnizeh-labs/aetheris-protocol/blob/main/docs/CONTROL_PLANE_DESIGN.md) | Auth/Matchmaking | How does the client authenticate and receive the server address? |
 | [SECURITY_DESIGN](SECURITY_DESIGN.md) | Layered security | How are cheats detected without blocking the tick? |
 | [PERSISTENCE_DESIGN](PERSISTENCE_DESIGN.md) | Tiered persistence | How do events reach the database without touching the tick budget? |
-| [AUDIT_DESIGN](https://github.com/garnizeh-labs/nexus/blob/main/docs/AUDIT_DESIGN.md) | Auditing (P3) | How does the Audit Worker verify integrity offline? |
+| [AUDIT_DESIGN] | Auditing | [Restricted module not available yet] |
 | [OBSERVABILITY_DESIGN](OBSERVABILITY_DESIGN.md) | Telemetry | How do spans, metrics, and logs flow to Grafana/Jaeger? |
-| [FEDERATION_DESIGN](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md) | Multi-server (P4) | How do entities migrate between clusters? |
+| [FEDERATION_DESIGN] | Multi-server | [Restricted module not available yet] |
 | [ARCHITECTURE_DESIGN](REPOSITORY_ARCHITECTURE_DESIGN.md) | SDK/Stable contracts | What is the guaranteed public API for integrators? |
 | [PRIORITY_CHANNELS_DESIGN](PRIORITY_CHANNELS_DESIGN.md) | Priority multiplexing | How are Data Plane messages prioritized, shed, and routed? |
 
