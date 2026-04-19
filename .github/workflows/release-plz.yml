@@ -22,16 +22,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout aetheris-protocol (path dependency)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          repository: garnizeh-labs/aetheris-protocol
-          path: aetheris-protocol
-          fetch-depth: 1
-
-      - name: Symlink aetheris-protocol for Cargo path dependency
-        run: ln -s "$GITHUB_WORKSPACE/aetheris-protocol" ../aetheris-protocol
-
       - name: Cache Cargo
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
