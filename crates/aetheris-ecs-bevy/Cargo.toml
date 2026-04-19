@@ -1,0 +1,17 @@
+[package]
+name = "aetheris-ecs-bevy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Bevy ECS integration for the Aetheris Protocol"
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+aetheris-protocol = { workspace = true }
+bevy_ecs = { workspace = true }
+bimap = { workspace = true }
+metrics = { workspace = true }
+tracing = { workspace = true }
+rmp-serde = { workspace = true }

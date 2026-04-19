@@ -1,0 +1,11 @@
+[package]
+name = "aetheris-ecs-custom"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "High-performance custom ECS with SoA layout and manual dirty tracking"
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]

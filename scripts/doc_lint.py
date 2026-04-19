@@ -12,13 +12,13 @@ def lint_file(filepath):
         content = f.read()
 
     # Check for frontmatter
-    frontmatter_match = re.search(r'^---\n(.*?)\n---', content, re.DOTALL)
+    frontmatter_match = re.search(r'^---\r?\n(.*?)\r?\n^---\s*$', content, re.DOTALL | re.MULTILINE)
     if not frontmatter_match:
         errors.append("Missing frontmatter (YAML block starting and ending with ---)")
     else:
         fm_content = frontmatter_match.group(1)
         for field in REQUIRED_FIELDS:
-            if f"{field}:" not in fm_content:
+            if not re.search(rf"^{field}:", fm_content, re.MULTILINE):
                 errors.append(f"Missing required frontmatter field: {field}")
 
     # Check for required sections (only for design files)
@@ -35,7 +35,9 @@ def main():
     failed = False
 
     files_to_check = []
-    for root, dirs, files in os.walk(docs_root):
+    for root, _dirs, files in os.walk(docs_root):
+        # Prune excluded directories in-place to avoid descending into them
+        _dirs[:] = [d for d in _dirs if d not in {'.git', 'target', 'jemalloc', 'node_modules', 'pkg'}]
         for f in files:
             if f.endswith(".md") and f != "README.md":
                 files_to_check.append(os.path.join(root, f))

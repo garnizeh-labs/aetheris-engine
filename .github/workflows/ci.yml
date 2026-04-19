@@ -20,45 +20,73 @@ jobs:
     name: Format Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          toolchain: 1.94.1
+          path: aetheris-engine
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: garnizeh-labs/aetheris-protocol
+          path: aetheris-protocol
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # 1.95.0
+        with:
+          toolchain: 1.95.0
       - run: cargo fmt --all --check
+        working-directory: aetheris-engine
 
   security:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          toolchain: 1.94.1
-      - uses: taiki-e/install-action@cargo-deny
-      - uses: taiki-e/install-action@cargo-audit
+          path: aetheris-engine
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: garnizeh-labs/aetheris-protocol
+          path: aetheris-protocol
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # 1.95.0
+        with:
+          toolchain: 1.95.0
+      - uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # cargo-deny
+        with:
+          tool: cargo-deny
+      - uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # cargo-audit
+        with:
+          tool: cargo-audit
       - name: License & Advisory Check
         run: cargo deny check
+        working-directory: aetheris-engine
       - name: Vulnerability Scan
         run: cargo audit
+        working-directory: aetheris-engine
 
   clippy:
     name: Clippy Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          toolchain: 1.94.1
-      - uses: Swatinem/rust-cache@v2
+          path: aetheris-engine
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: garnizeh-labs/aetheris-protocol
+          path: aetheris-protocol
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # 1.95.0
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: aetheris-engine
       - name: Install protoc
         run: sudo apt-get update -y && sudo apt-get install -y protobuf-compiler
       - run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: aetheris-engine
 
   docs-audit:
     name: Documentation Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Install codespell
         run: sudo apt-get update && sudo apt-get install -y codespell
       - name: Run Frontmatter Lint
@@ -74,15 +102,26 @@ jobs:
     needs: [fmt, security, clippy]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          toolchain: 1.94.1
-      - uses: Swatinem/rust-cache@v2
+          path: aetheris-engine
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: garnizeh-labs/aetheris-protocol
+          path: aetheris-protocol
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # 1.95.0
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: aetheris-engine
       - name: Install protoc
         run: sudo apt-get update -y && sudo apt-get install -y protobuf-compiler
-      - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --workspace
+      - uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # nextest
+        with:
+          tool: nextest
+      - run: cargo nextest run --workspace --profile ci
+        working-directory: aetheris-engine
 
   docs:
     name: Documentation Build
@@ -91,14 +130,23 @@ jobs:
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          toolchain: 1.94.1
-      - uses: Swatinem/rust-cache@v2
+          path: aetheris-engine
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: garnizeh-labs/aetheris-protocol
+          path: aetheris-protocol
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # 1.95.0
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: aetheris-engine
       - name: Install protoc
         run: sudo apt-get update -y && sudo apt-get install -y protobuf-compiler
       - run: cargo doc --workspace --no-deps
+        working-directory: aetheris-engine
 
   # --- STAGE 3: SUPPLEMENTAL CHECKS ---
   udeps:
@@ -106,13 +154,24 @@ jobs:
     needs: [fmt, security, clippy]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly-2025-07-01
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: aetheris-engine
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: garnizeh-labs/aetheris-protocol
+          path: aetheris-protocol
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # 1.95.0
         with:
           toolchain: nightly-2025-07-01
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: aetheris-engine
       - name: Install protoc
         run: sudo apt-get update -y && sudo apt-get install -y protobuf-compiler
-      - uses: taiki-e/install-action@cargo-udeps
+      - uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # cargo-udeps
+        with:
+          tool: cargo-udeps
       - name: Check for unused dependencies
         run: cargo +nightly-2025-07-01 udeps --workspace --all-targets
+        working-directory: aetheris-engine

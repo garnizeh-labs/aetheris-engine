@@ -36,6 +36,10 @@ ignore = [
 [bans]
 # Warn on duplicates; promote to deny once P1 deps are stabilised.
 multiple-versions = "warn"
+skip = [
+    "wit-bindgen",
+    "hashbrown",
+]
 
 [sources]
 # Only allow crates from crates.io. Disallow git sources and local paths

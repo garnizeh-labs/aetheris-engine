@@ -623,7 +623,7 @@ Normal:      Moderate:    Severe:
 
 | Stage 4 Sub-Task | Budget | Notes |
 |---|---|---|
-| `extract_deltas()` (ECS) | 1.5ms | Unchanged from [ECS_DESIGN.md](ECS_DESIGN.md) |
+| `extract_deltas()` (ECS) | 1.5ms | Unchanged from [ENGINE_DESIGN.md](ENGINE_DESIGN.md) |
 | Interest pipeline (all clients) | 1.0ms | 500 clients × 4 filters × ~50 entities |
 | Enter/exit snapshot encoding | 0.5ms | Only for transitioning entities |
 | **Total Stage 4** | **3.0ms** | Extended from 2.5ms to accommodate interest pipeline |

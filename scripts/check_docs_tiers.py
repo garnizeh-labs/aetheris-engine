@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 import os
 import sys
 import re
 
-DESIGN_DOCS_DIR = "docs/design/"
+DESIGN_DOCS_DIR = "docs/"
 
 def check_file(path):
     if not os.path.isfile(path):
@@ -11,8 +12,16 @@ def check_file(path):
     with open(path, 'r') as f:
         content = f.read()
         
+    # Extract YAML frontmatter
+    fm_match = re.search(r"^---\s*\n(.*?)\n---", content, re.DOTALL | re.MULTILINE)
+    if not fm_match:
+        print(f"Error: {path} is missing frontmatter.")
+        return False
+        
+    frontmatter = fm_match.group(1)
+    
     # Check if Tier is in frontmatter
-    match = re.search(r"^Tier: (.*)$", content, re.MULTILINE)
+    match = re.search(r"^Tier:\s*(.*)$", frontmatter, re.MULTILINE)
     if not match:
         print(f"Error: {path} is missing 'Tier' frontmatter.")
         return False

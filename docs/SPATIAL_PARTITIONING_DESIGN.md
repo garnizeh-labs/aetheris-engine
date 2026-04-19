@@ -14,7 +14,7 @@ Tier: 2
 
 Spatial partitioning is the **primary scale mechanism** of the Aetheris Engine. Without it, a world with 10,000 entities would require every client to receive every entity's delta every tick — approximately 4.3 MB/s per client for transforms alone. With spatial partitioning, each client receives only the ~50 entities within their **Area of Interest (AoI)**, reducing bandwidth by 96–99%.
 
-This document is the **canonical source** for the engine's spatial partitioning system. It consolidates design fragments previously spread across [ENGINE_DESIGN.md](ENGINE_DESIGN.md) (§5), [PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) (§9), [PLATFORM_DESIGN.md](PLATFORM_DESIGN.md) (§4.2), [VOID_RUSH_GDD.md](https://github.com/garnizeh-labs/void-rush/blob/main/docs/VOID_RUSH_GDD.md) (§9), and [NEXUS_PLATFORM_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/NEXUS_PLATFORM_DESIGN.md) (§7.2) into a single authoritative reference.
+This document is the **canonical source** for the engine's spatial partitioning system. It consolidates design fragments previously spread across [ENGINE_DESIGN.md](ENGINE_DESIGN.md) (§5), [PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) (§9), [REPOSITORY_ARCHITECTURE_DESIGN.md](REPOSITORY_ARCHITECTURE_DESIGN.md) (§4.2), [VOID_RUSH_GDD.md](https://github.com/garnizeh-labs/void-rush/blob/main/docs/VOID_RUSH_GDD.md) (§9), and [NEXUS_PLATFORM_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/NEXUS_PLATFORM_DESIGN.md) (§7.2) into a single authoritative reference.
 
 The spatial system serves two orthogonal purposes:
 
@@ -45,7 +45,7 @@ Both use the same underlying data structure (the Spatial Hash Grid) but query it
 
 Spatial partitioning is the **primary scale mechanism** of the Aetheris Engine. Without it, a world with 10,000 entities would require every client to receive every entity's delta every tick — approximately 4.3 MB/s per client for transforms alone. With spatial partitioning, each client receives only the ~50 entities within their **Area of Interest (AoI)**, reducing bandwidth by 96–99%.
 
-This document is the **canonical source** for the engine's spatial partitioning system. It consolidates design fragments previously spread across [ENGINE_DESIGN.md](ENGINE_DESIGN.md) (§5), [PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) (§9), [PLATFORM_DESIGN.md](PLATFORM_DESIGN.md) (§4.2), [VOID_RUSH_GDD.md](https://github.com/garnizeh-labs/void-rush/blob/main/docs/VOID_RUSH_GDD.md) (§9), and [NEXUS_PLATFORM_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/NEXUS_PLATFORM_DESIGN.md) (§7.2) into a single authoritative reference.
+This document is the **canonical source** for the engine's spatial partitioning system. It consolidates design fragments previously spread across [ENGINE_DESIGN.md](ENGINE_DESIGN.md) (§5), [PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md) (§9), [REPOSITORY_ARCHITECTURE_DESIGN.md](REPOSITORY_ARCHITECTURE_DESIGN.md) (§4.2), [VOID_RUSH_GDD.md](https://github.com/garnizeh-labs/void-rush/blob/main/docs/VOID_RUSH_GDD.md) (§9), and [NEXUS_PLATFORM_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/NEXUS_PLATFORM_DESIGN.md) (§7.2) into a single authoritative reference.
 
 The spatial system serves two orthogonal purposes:
 
@@ -585,6 +585,7 @@ For the full per-client subscription model (which composes AoI + rooms + tenants
 | **Pop-in** | Visual artifact where entities suddenly appear without interpolation. Prevented by sending full snapshots on AoI entry. |
 | **Spatial Hash Grid** | A data structure mapping integer cell coordinates to lists of entities. O(1) insert, O(K) query per cell. |
 | **SpatialIndex** | Engine trait abstracting spatial data structures. Implementations: `SpatialHashGrid` (P1), `KdTreeIndex` (P3). |
+| **ECS Design** | Content consolidated into [ENGINE_DESIGN.md](ENGINE_DESIGN.md). |
 
 ---
 

@@ -1,0 +1,101 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.95.0"
+authors = ["garnizeH Labs"]
+description = "Authoritative, tick-based, deterministic simulation engine for the Aetheris multiplayer platform"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/garnizeh-labs/aetheris-engine"
+readme = "README.md"
+keywords = ["game-server", "simulation", "multiplayer", "ecs", "networking"]
+categories = ["game-engines", "network-programming", "simulation"]
+
+[workspace.dependencies]
+# Internal Workspace Crates
+aetheris-server = { path = "crates/aetheris-server", version = "0.2.0" }
+aetheris-ecs-bevy = { path = "crates/aetheris-ecs-bevy", version = "0.2.0" }
+aetheris-ecs-custom = { path = "crates/aetheris-ecs-custom", version = "0.2.0" }
+aetheris-transport-renet = { path = "crates/aetheris-transport-renet", version = "0.2.0" }
+aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtransport", version = "0.2.0" }
+aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.2.0" }
+
+# Protocol (published — garnizeh-labs/aetheris-protocol)
+aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
+aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
+aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }
+
+# Core Traits & Utilities
+thiserror = "2.0.18"
+async-trait = "0.1.89"
+serde = { version = "1.0.228", features = ["derive"] }
+rmp-serde = "1.3.1"
+rand = "0.10.1"
+ulid = { version = "1.2.1", default-features = false }
+base64 = "0.22.1"
+sha2 = "0.11.0"
+hex = "0.4"
+rustls = { version = "0.23.38", features = ["ring"] }
+
+# Networking — Phase 1 (renet) & Phase 3 (quinn / webtransport)
+renet = "2.0.0"
+renet_netcode = "2.0.0"
+quinn = "0.11.9"
+wtransport = "0.7.0"
+rcgen = "0.14.7"
+ring = "0.17.8"
+time = { version = "0.3.47", features = ["std"] }
+
+# ECS & Game State
+bevy_ecs = "0.18.1"
+bimap = "0.6.3"
+
+# gRPC Control Plane
+# Only prost+codegen here — no transport/TLS so protocol compiles on wasm32.
+# Server crates that need native TLS add those features in their own Cargo.toml.
+tonic = { version = "0.14.3", default-features = false, features = ["codegen"] }
+tonic-prost = "0.14.3"
+prost = "0.14.1"
+tonic-build = "0.14.3"
+tonic-prost-build = "0.14.3"
+# tonic-web bridges gRPC-Web for browser clients; follow tonic major version.
+tonic-web = "0.14"
+
+# Infrastructure & Observability
+tokio = { version = "1.51.1", features = ["full"] }
+tokio-util = { version = "0.7.13" }
+tokio-stream = { version = "0.1", features = ["net"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.19", features = [
+    "env-filter",
+    "json",
+    "fmt",
+] }
+metrics = "0.24.3"
+metrics-exporter-prometheus = "0.18.1"
+tikv-jemallocator = "0.6.1"
+tikv-jemalloc-ctl = { version = "0.6.1", features = ["stats"] }
+opentelemetry = { version = "0.31.0", features = ["trace"] }
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "trace"] }
+opentelemetry-otlp = { version = "0.31.1", features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = "0.32.1"
+
+# Web & API
+axum = { version = "0.8.9", features = ["tokio"] }
+tower-http = { version = "0.6.8", features = ["cors"] }
+reqwest = { version = "0.13.2", default-features = false, features = [
+    "json",
+    "rustls",
+] }
+dashmap = "6.1.0"
+serde_json = "1.0.138"
+chrono = { version = "0.4.44", features = ["serde"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = "symbols"
+codegen-units = 1

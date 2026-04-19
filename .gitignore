@@ -1,6 +1,5 @@
 # --- Rust / Cargo ---
 target/
-Cargo.lock
 
 # --- OS Specific ---
 .DS_Store
