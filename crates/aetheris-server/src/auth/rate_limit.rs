@@ -49,13 +49,13 @@ impl InMemoryRateLimiter {
             .entry(key.clone())
             .or_insert_with(|| RateLimitEntry {
                 count: 0,
-                reset_at: now + Duration::from_hours(1),
+                reset_at: now + Duration::from_secs(3600),
             });
 
         // 2. Check for reset
         if now > entry.reset_at {
             entry.count = 0;
-            entry.reset_at = now + Duration::from_hours(1);
+            entry.reset_at = now + Duration::from_secs(3600);
         }
 
         // 3. Enforce limit
@@ -187,7 +187,7 @@ mod tests {
             (RateLimitType::Email, email_stale.to_string()),
             RateLimitEntry {
                 count: 5,
-                reset_at: now.checked_sub(Duration::from_hours(1)).unwrap(),
+                reset_at: now.checked_sub(Duration::from_secs(3600)).unwrap(),
             },
         );
 
@@ -196,7 +196,7 @@ mod tests {
             (RateLimitType::Email, email_fresh.to_string()),
             RateLimitEntry {
                 count: 1,
-                reset_at: now + Duration::from_hours(1),
+                reset_at: now + Duration::from_secs(3600),
             },
         );
 
