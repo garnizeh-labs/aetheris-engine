@@ -51,9 +51,9 @@ jobs:
           mkdir -p ~/.cargo
           cat <<EOF > ~/.cargo/config.toml
           [patch.crates-io]
-          aetheris-protocol = { path = "$(pwd)/aetheris-protocol/crates/aetheris-protocol" }
-          aetheris-encoder-serde = { path = "$(pwd)/aetheris-protocol/crates/aetheris-encoder-serde" }
-          aetheris-encoder-bitpack = { path = "$(pwd)/aetheris-protocol/crates/aetheris-encoder-bitpack" }
+          aetheris-protocol = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
+          aetheris-encoder-serde = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
+          aetheris-encoder-bitpack = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
           EOF
 
       - name: Run release-plz
