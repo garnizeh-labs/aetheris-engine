@@ -39,6 +39,9 @@ jobs:
         with:
           toolchain: 1.95.0
 
+      - name: Install protoc
+        run: sudo apt-get update -y && sudo apt-get install -y protobuf-compiler
+
       - name: Run release-plz
         uses: release-plz/action@49c995b2442b0f60dd4aab07a164cc00643471fc # v0.5.128
         with:
