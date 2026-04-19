@@ -492,7 +492,7 @@ impl SuspicionLevel {
 
 ## 9. The Audit Feedback Loop (Redacted)
 
-> **Pro:** This section is continued in the private companion document available to Nexus Plus customers.
+> **Status:** This module is not available yet.
 
 The Audit Worker (detailed in AUDIT_DESIGN.md) communicates security verdicts back to the running server via an `AuditEvent` mpsc channel. The server processes these asynchronously:
 
@@ -532,7 +532,7 @@ The Audit Worker is intentionally **lagging** — it analyses events from the pa
 ---
 
 
-> **Pro:** This section is continued in the private companion document available to Nexus Plus customers.
+> **Status:** This module is not available yet.
 
 ## 10. Input Sanitisation & Validation
 

@@ -504,7 +504,7 @@ CREATE TABLE audit_checkpoints (
 
 
 
-> **Pro:** This section is continued in the private companion document available to Nexus Plus customers.
+> **Status:** This module is not available yet.
 ---
 
 ## 11. Migration Strategy

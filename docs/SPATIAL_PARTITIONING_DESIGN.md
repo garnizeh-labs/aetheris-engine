@@ -184,9 +184,9 @@ impl SpatialHashGrid {
 | Application | Cell Size | Grid Extent | Rationale |
 |---|---|---|---|
 | **Void Rush** (space MMO) | 500m × 500m | 20×20 (10km²) | Largest weapon range (missile: 500m) fits in one cell |
-| **Corporate Campus** (Nexus) | 50m × 50m | 40×40 (2km²) | Room-sized granularity; one building floor per cell |
-| **Trading Floor** (Nexus) | 20m × 20m | 10×10 (200m²) | Desk-level granularity |
-| **Classroom** (Nexus) | 10m × 10m | 5×5 (50m²) | Seat-level granularity |
+| **Corporate Campus** (Enterprise) | 50m × 50m | 40×40 (2km²) | Room-sized granularity; one building floor per cell |
+| **Trading Floor** (Enterprise) | 20m × 20m | 10×10 (200m²) | Desk-level granularity |
+| **Classroom** (Enterprise) | 10m × 10m | 5×5 (50m²) | Seat-level granularity |
 
 Cell size is configurable at server startup via `SpatialConfig` (see §6). It is **not** runtime-mutable — changing cell size mid-session would invalidate all client interest sets.
 
@@ -487,7 +487,7 @@ graph LR
     A["SpatialHashGrid.rebuild()<br/>Clear + re-insert all entities<br/>~0.2ms @ 6,700 entities"] --> B["CollisionSystem<br/>For each cell: narrow-phase<br/>circle/AABB checks"]
     B --> C{"Collision Type?"}
     C -->|"Game-specific"| D["CollisionHandler.on_collision()<br/>(Void Rush: damage, loot, zones)"]
-    C -->|"Room entry/exit"| E["RoomSystem.on_boundary_cross()<br/>(Nexus: subscription changes)"]
+    C -->|"Room entry/exit"| E["RoomSystem.on_boundary_cross()<br/>(Enterprise: subscription changes)"]
     C -->|"Custom"| F["User-defined handler<br/>(registered at startup)"]
 ```
 
@@ -502,7 +502,7 @@ pub trait CollisionHandler: Send + Sync {
 }
 ```
 
-Games register their `CollisionHandler` at startup. Nexus applications that don't need physics set `SpatialConfig::enable_collision = false` and skip this entirely.
+Games register their `CollisionHandler` at startup. Enterprise applications that don't need physics set `SpatialConfig::enable_collision = false` and skip this entirely.
 
 ### 8.3 Complexity Summary
 
@@ -545,7 +545,7 @@ Negligible. The spatial system is not a memory bottleneck.
 
 ## 10. Extensibility for Non-Game Use Cases
 
-The spatial system is designed to be useful beyond collision detection. Nexus platform applications use it for:
+The spatial system is designed to be useful beyond collision detection. Enterprise platform applications use it for:
 
 | Use Case | Spatial Feature | Configuration |
 |---|---|---|

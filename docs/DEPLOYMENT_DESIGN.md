@@ -76,7 +76,7 @@ The server binary is a single statically-linked executable (< 50 MB) that requir
 
 ### 2.2 Multi-Region (P4 — Federation)
 
-Each region is an independent Aetheris deployment behind a Global Coordinator (CockroachDB). See [FEDERATION_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md).
+Each region is an independent Aetheris deployment behind a Global Coordinator. [Restricted module not available yet].
 
 ---
 
@@ -364,7 +364,7 @@ Each game server instance is single-threaded (tick pipeline) with async I/O (Tok
 
 ### 12.2 Horizontal (P4 — Federation)
 
-Multiple independent server instances, each managing a shard (region/zone). A Global Coordinator handles cross-shard entity hand-off. See [FEDERATION_DESIGN.md](https://github.com/garnizeh-labs/nexus/blob/main/docs/FEDERATION_DESIGN.md).
+Multiple independent server instances, each managing a shard (region/zone). A Global Coordinator handles cross-shard entity hand-off. [Restricted module not available yet].
 
 ### 12.3 Auto-Scaling Signals
 
@@ -377,7 +377,7 @@ Multiple independent server instances, each managing a shard (region/zone). A Gl
 ---
 
 
-> **Pro:** This section is continued in the private companion document available to Nexus Plus customers.
+> **Status:** This module is not available yet.
 
 ## 13. CI/CD Pipeline
 
