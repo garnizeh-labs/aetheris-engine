@@ -223,7 +223,11 @@ impl WorldState for BevyWorldAdapter {
         for i in 0..count {
             let x = lcg_next(&mut seed);
             let y = lcg_next(&mut seed);
-            let rot = lcg_next(&mut seed) * std::f32::consts::PI / 20.0; // [−π, π]
+            let rot = if rotate {
+                lcg_next(&mut seed) * std::f32::consts::PI / 20.0
+            } else {
+                0.0
+            };
             let kind = entity_types[i as usize % entity_types.len()];
             self.spawn_kind(kind, x, y, rot);
         }
@@ -271,8 +275,10 @@ pub struct Transform {
     pub entity_type: u16,
 }
 
-impl From<Transform> for Vec<u8> {
-    fn from(t: Transform) -> Self {
+impl TryFrom<Transform> for Vec<u8> {
+    type Error = rmp_serde::encode::Error;
+
+    fn try_from(t: Transform) -> Result<Self, Self::Error> {
         let p = ProtocolTransform {
             x: t.x,
             y: t.y,
@@ -280,7 +286,7 @@ impl From<Transform> for Vec<u8> {
             rotation: t.rotation,
             entity_type: t.entity_type,
         };
-        rmp_serde::to_vec(&p).unwrap_or_default()
+        rmp_serde::to_vec(&p)
     }
 }
 

@@ -240,9 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_err(|e| format!("Invalid ALLOWED_ORIGINS: {e}"))?,
             )
         } else {
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_credentials(false)
+            CorsLayer::new().allow_origin(Any).allow_credentials(false)
         };
 
         let cors = cors

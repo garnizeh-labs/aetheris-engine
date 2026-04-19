@@ -7,6 +7,9 @@
 
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::too_many_lines)]
+// `Duration::from_mins` is still unstable in Rust 1.95.0 (duration_constructors_lite #140881).
+// Suppressing the lint that insists on using it until the feature stabilizes.
+#![allow(clippy::duration_suboptimal_units)]
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::net::SocketAddr;
@@ -105,7 +108,7 @@ impl IpRateLimiter {
         // Remove entries that haven't been seen in 10 minutes and are full
         self.limits.retain(|_ip, bucket| {
             let full = bucket.tokens >= self.max_rate - 0.1;
-            let idle = now.duration_since(bucket.last_refill) > Duration::from_mins(10);
+            let idle = now.duration_since(bucket.last_refill) > Duration::from_secs(10 * 60);
             !(full && idle)
         });
     }
@@ -280,7 +283,7 @@ impl GameTransport for RenetTransport {
                 .last_prune
                 .lock()
                 .map_err(|e| TransportError::Io(std::io::Error::other(e.to_string())))?;
-            if now.duration_since(*last_prune) > Duration::from_mins(1) {
+            if now.duration_since(*last_prune) > Duration::from_secs(60) {
                 let mut rate_limiter = self
                     .rate_limiter
                     .lock()
@@ -311,10 +314,9 @@ impl GameTransport for RenetTransport {
                 ServerEvent::ClientConnected { client_id } => {
                     let addr = transport.client_addr(client_id);
                     let allowed = if let Some(addr) = addr {
-                        let mut rate_limiter = self
-                            .rate_limiter
-                            .lock()
-                            .map_err(|e| TransportError::Io(std::io::Error::other(e.to_string())))?;
+                        let mut rate_limiter = self.rate_limiter.lock().map_err(|e| {
+                            TransportError::Io(std::io::Error::other(e.to_string()))
+                        })?;
                         rate_limiter.check(addr.ip())
                     } else {
                         true
@@ -330,10 +332,9 @@ impl GameTransport for RenetTransport {
                         );
                         // Suppress both Connected and future Disconnected events for this client
                         // to satisfy tests while keeping metrics balanced (delta = 0).
-                        let mut suppressed = self
-                            .suppressed_disconnects
-                            .lock()
-                            .map_err(|e| TransportError::Io(std::io::Error::other(e.to_string())))?;
+                        let mut suppressed = self.suppressed_disconnects.lock().map_err(|e| {
+                            TransportError::Io(std::io::Error::other(e.to_string()))
+                        })?;
                         suppressed.insert(client_id);
                         server.disconnect(client_id);
                     }

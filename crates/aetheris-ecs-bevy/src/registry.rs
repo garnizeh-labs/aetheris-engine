@@ -67,10 +67,11 @@ impl<T: ReplicatableComponent> ComponentReplicator for DefaultReplicator<T> {
         };
 
         if is_changed {
+            let payload: Vec<u8> = component.clone().try_into().ok()?;
             Some(ReplicationEvent {
                 network_id,
                 component_kind: self.kind,
-                payload: component.clone().into(),
+                payload,
                 tick,
             })
         } else {
@@ -91,5 +92,5 @@ impl<T: ReplicatableComponent> ComponentReplicator for DefaultReplicator<T> {
 // Add TryFrom bound for T to support apply
 /// Trait alias for components that can be replicated.
 /// Requires `Component`, `Clone`, and conversion to/from `Vec<u8>`.
-pub trait ReplicatableComponent: Component + Clone + Into<Vec<u8>> + TryFrom<Vec<u8>> {}
-impl<T: Component + Clone + Into<Vec<u8>> + TryFrom<Vec<u8>>> ReplicatableComponent for T {}
+pub trait ReplicatableComponent: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>> {}
+impl<T: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>>> ReplicatableComponent for T {}
