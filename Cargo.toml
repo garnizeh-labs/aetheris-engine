@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 rust-version = "1.95.0"
 authors = ["garnizeH Labs"]
@@ -16,12 +16,12 @@ categories = ["game-engines", "network-programming", "simulation"]
 
 [workspace.dependencies]
 # Internal Workspace Crates
-aetheris-server = { path = "crates/aetheris-server", version = "0.3.2" }
-aetheris-ecs-bevy = { path = "crates/aetheris-ecs-bevy", version = "0.3.2" }
-aetheris-ecs-custom = { path = "crates/aetheris-ecs-custom", version = "0.3.2" }
-aetheris-transport-renet = { path = "crates/aetheris-transport-renet", version = "0.3.2" }
-aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtransport", version = "0.3.2" }
-aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.3.2" }
+aetheris-server = { path = "crates/aetheris-server", version = "0.3.3" }
+aetheris-ecs-bevy = { path = "crates/aetheris-ecs-bevy", version = "0.3.3" }
+aetheris-ecs-custom = { path = "crates/aetheris-ecs-custom", version = "0.3.3" }
+aetheris-transport-renet = { path = "crates/aetheris-transport-renet", version = "0.3.3" }
+aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtransport", version = "0.3.3" }
+aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.3.3" }
 
 # Protocol (published — garnizeh-labs/aetheris-protocol)
 aetheris-protocol = { version = "0.2.5" }
