@@ -46,15 +46,30 @@ jobs:
         with:
           toolchain: 1.95.0
 
-      - name: Setup Global Cargo Patches (to fix historical metadata checks)
+      - name: Setup Robust Cargo Environment (fix historical path dependencies)
         run: |
+          # 1. Setup Global Git-based Patches
           mkdir -p ~/.cargo
           cat <<EOF > ~/.cargo/config.toml
           [patch.crates-io]
-          aetheris-protocol = { path = "$(pwd)/aetheris-protocol/crates/aetheris-protocol" }
-          aetheris-encoder-serde = { path = "$(pwd)/aetheris-protocol/crates/aetheris-encoder-serde" }
-          aetheris-encoder-bitpack = { path = "$(pwd)/aetheris-protocol/crates/aetheris-encoder-bitpack" }
+          aetheris-protocol = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
+          aetheris-encoder-serde = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
+          aetheris-encoder-bitpack = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
           EOF
+
+          # 2. Create Cargo Wrapper to sanitize manifests on-the-fly
+          mkdir -p ~/.cargo/bin
+          cat <<'EOF' > ~/.cargo/bin/cargo
+          #!/bin/bash
+          # Detect if we are in a manifest context and strip broken relative paths
+          if [[ "$*" == *"metadata"* ]] || [[ "$*" == *"package"* ]] || [[ "$*" == *"check"* ]]; then
+            find . -maxdepth 4 -name "Cargo.toml" -exec sed -i 's/path = "\.\.\/aetheris-protocol"//g' {} +
+            find . -maxdepth 4 -name "Cargo.toml" -exec sed -i 's/path = "\.\.\/\.\.\/aetheris-protocol"//g' {} +
+          fi
+          exec /usr/bin/cargo "$@"
+          EOF
+          chmod +x ~/.cargo/bin/cargo
+          echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
 
       - name: Run release-plz
         uses: release-plz/action@49c995b2442b0f60dd4aab07a164cc00643471fc # v0.5.128
