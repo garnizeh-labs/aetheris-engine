@@ -18,18 +18,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          path: aetheris-engine
 
-      - name: Checkout protocol (to satisfy broken history paths)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Checkout protocol
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: garnizeh-labs/aetheris-protocol
           path: aetheris-protocol
-
-      - name: Fix protocol path for historical metadata (actions/checkout forbids ../ paths)
-        run: ln -s $(pwd)/aetheris-protocol ../aetheris-protocol
 
       - name: Cache Cargo
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
@@ -37,7 +35,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            aetheris-engine/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-1.95.0
           restore-keys: |
             ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -53,13 +51,15 @@ jobs:
           mkdir -p ~/.cargo
           cat <<EOF > ~/.cargo/config.toml
           [patch.crates-io]
-          aetheris-protocol = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
-          aetheris-encoder-serde = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
-          aetheris-encoder-bitpack = { git = "https://github.com/garnizeh-labs/aetheris-protocol" }
+          aetheris-protocol = { path = "$(pwd)/aetheris-protocol/crates/aetheris-protocol" }
+          aetheris-encoder-serde = { path = "$(pwd)/aetheris-protocol/crates/aetheris-encoder-serde" }
+          aetheris-encoder-bitpack = { path = "$(pwd)/aetheris-protocol/crates/aetheris-encoder-bitpack" }
           EOF
 
       - name: Run release-plz
         uses: release-plz/action@49c995b2442b0f60dd4aab07a164cc00643471fc # v0.5.128
+        with:
+          project_manifest: aetheris-engine/Cargo.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
