@@ -11,6 +11,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# --- CI: External Repo Checkouts (not part of this workspace) ---
+/aetheris-protocol/
+
 # --- Aetheris Local Infrastructure ---
 /docker/data
 /logs/*.log
