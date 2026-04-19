@@ -4,7 +4,6 @@ use aetheris_ecs_bevy::BevyWorldAdapter;
 use bevy_ecs::prelude::World;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio_util::sync::CancellationToken;
 
 use aetheris_protocol::auth::v1::auth_service_client::AuthServiceClient;
 use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
@@ -148,7 +147,7 @@ async fn test_server_loop_1000_ticks() {
         aetheris_protocol::types::ComponentKind(1),
     )));
     let encoder = Box::new(MockEncoder::new());
-    let shutdown = CancellationToken::new();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
 
     let tick_rate = 1000;
     let auth_service =
@@ -156,7 +155,7 @@ async fn test_server_loop_1000_ticks() {
     let mut scheduler = TickScheduler::new(tick_rate, auth_service);
 
     let handle = tokio::spawn(async move {
-        scheduler.run(transport, world, encoder, shutdown).await;
+        scheduler.run(transport, world, encoder, shutdown_rx).await;
     });
 
     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -314,7 +313,7 @@ async fn test_client_connect_and_replication() {
         world: Arc::new(Mutex::new(MockWorldState::new())),
         encoder: Arc::new(MockEncoder::new()),
     };
-    let shutdown = CancellationToken::new();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid = ClientId(1);
 
     state
@@ -355,7 +354,7 @@ async fn test_client_connect_and_replication() {
 
     let handle = tokio::spawn(async move {
         scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown)
+            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
             .await;
     });
 
@@ -386,7 +385,7 @@ async fn test_full_integration_suite() {
         world: Arc::new(Mutex::new(MockWorldState::new())),
         encoder: Arc::new(MockEncoder::new()),
     };
-    let shutdown = CancellationToken::new();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid = ClientId(1);
 
     state
@@ -418,7 +417,7 @@ async fn test_full_integration_suite() {
 
     let handle = tokio::spawn(async move {
         scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown)
+            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
             .await;
     });
 
@@ -464,7 +463,7 @@ async fn test_consecutive_dropped_packets_interpolation() {
         world: Arc::new(Mutex::new(MockWorldState::new())),
         encoder: Arc::new(MockEncoder::new()),
     };
-    let shutdown = CancellationToken::new();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid = ClientId(1);
 
     state
@@ -496,7 +495,7 @@ async fn test_consecutive_dropped_packets_interpolation() {
 
     let handle = tokio::spawn(async move {
         scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown)
+            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
             .await;
     });
 
@@ -544,7 +543,7 @@ async fn test_wasm_mtu_handling_simulation() {
         world: Arc::new(Mutex::new(MockWorldState::new())),
         encoder: Arc::new(MockEncoder::new()),
     };
-    let shutdown = CancellationToken::new();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid = ClientId(1);
 
     state
@@ -573,7 +572,7 @@ async fn test_wasm_mtu_handling_simulation() {
 
     let handle = tokio::spawn(async move {
         scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown)
+            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
             .await;
     });
 
@@ -604,7 +603,7 @@ async fn test_large_delta_fragmentation() {
         world: Arc::new(Mutex::new(MockWorldState::new())),
         encoder: Arc::new(MockEncoder::new()),
     };
-    let shutdown = CancellationToken::new();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid = ClientId(1);
 
     state
@@ -687,7 +686,7 @@ async fn test_large_delta_fragmentation() {
 
     let handle = tokio::spawn(async move {
         scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown)
+            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
             .await;
     });
 

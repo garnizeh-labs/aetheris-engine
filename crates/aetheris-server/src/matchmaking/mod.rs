@@ -9,7 +9,7 @@ use aetheris_protocol::matchmaking::v1::{
 use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
@@ -23,6 +23,8 @@ pub struct RegisteredServer {
 pub struct MatchmakingServiceImpl {
     servers: Arc<DashMap<String, RegisteredServer>>,
     authorizer: Arc<AuthServiceImpl>,
+    /// Tracks active matchmaking tasks by session token (using oneshot to signal cancellation)
+    active_queues: Arc<DashMap<String, oneshot::Sender<()>>>,
 }
 
 // Default removed as we need an authorizer now.
@@ -33,6 +35,7 @@ impl MatchmakingServiceImpl {
         Self {
             servers: Arc::new(DashMap::new()),
             authorizer,
+            active_queues: Arc::new(DashMap::new()),
         }
     }
 }
@@ -69,50 +72,61 @@ impl MatchmakingService for MatchmakingServiceImpl {
 
         let servers = self.servers.clone();
         let auth_clone = self.authorizer.clone();
+        let active_queues = self.active_queues.clone();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+
+        active_queues.insert(session_token.clone(), cancel_tx);
+
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::select! {
+                _ = cancel_rx => {
+                    let _ = tx.send(Err(Status::cancelled("Matchmaking cancelled by user"))).await;
+                }
+                () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    let optimal = servers
+                        .iter()
+                        .filter(|s| s.last_heartbeat.elapsed().as_secs() < 30)
+                        .filter(|s| s.info.players + s.info.reserved < s.info.max_players)
+                        .max_by_key(|s| s.info.max_players - (s.info.players + s.info.reserved))
+                        .map(|s| s.info.clone());
 
-            let optimal = servers
-                .iter()
-                .filter(|s| s.last_heartbeat.elapsed().as_secs() < 30)
-                .filter(|s| s.info.players + s.info.reserved < s.info.max_players)
-                .max_by_key(|s| s.info.max_players - (s.info.players + s.info.reserved))
-                .map(|s| s.info.clone());
+                    if let Some(server) = optimal {
+                        use aetheris_protocol::auth::v1::ConnectTokenRequest;
+                        let connect_req = Request::new(ConnectTokenRequest {
+                            session_token: session_token.clone(),
+                            server_address: server.addr.clone(),
+                        });
 
-            if let Some(server) = optimal {
-                use aetheris_protocol::auth::v1::ConnectTokenRequest;
-                let connect_req = Request::new(ConnectTokenRequest {
-                    session_token,
-                    server_address: server.addr.clone(),
-                });
-
-                let auth = auth_clone.clone();
-                match auth.issue_connect_token(connect_req).await {
-                    Ok(resp) => {
-                        let inner_resp = resp.into_inner();
+                        let auth = auth_clone.clone();
+                        match auth.issue_connect_token(connect_req).await {
+                            Ok(resp) => {
+                                let inner_resp = resp.into_inner();
+                                let _ = tx
+                                    .send(Ok(QueueUpdate {
+                                        status: Some(UpdateStatus::Matched(MatchFoundStatus {
+                                            quic_token: inner_resp.token,
+                                            server_address: server.addr,
+                                            world_instance_id: server.instance_id,
+                                        })),
+                                    }))
+                                    .await;
+                            }
+                            Err(e) => {
+                                let _ = tx
+                                    .send(Err(Status::internal(format!(
+                                        "Failed to issue connect token: {e}"
+                                    ))))
+                                    .await;
+                            }
+                        }
+                    } else {
                         let _ = tx
-                            .send(Ok(QueueUpdate {
-                                status: Some(UpdateStatus::Matched(MatchFoundStatus {
-                                    quic_token: inner_resp.token,
-                                    server_address: server.addr,
-                                    world_instance_id: server.instance_id,
-                                })),
-                            }))
-                            .await;
-                    }
-                    Err(e) => {
-                        let _ = tx
-                            .send(Err(Status::internal(format!(
-                                "Failed to issue connect token: {e}"
-                            ))))
+                            .send(Err(Status::resource_exhausted("No servers available")))
                             .await;
                     }
                 }
-            } else {
-                let _ = tx
-                    .send(Err(Status::resource_exhausted("No servers available")))
-                    .await;
             }
+            active_queues.remove(&session_token);
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -120,9 +134,16 @@ impl MatchmakingService for MatchmakingServiceImpl {
 
     async fn cancel_queue(
         &self,
-        _request: Request<CancelQueueRequest>,
+        request: Request<CancelQueueRequest>,
     ) -> Result<Response<CancelQueueResponse>, Status> {
-        Ok(Response::new(CancelQueueResponse { success: true }))
+        let req = request.into_inner();
+        let success = if let Some((_, cancel_tx)) = self.active_queues.remove(&req.session_token) {
+            let _ = cancel_tx.send(());
+            true
+        } else {
+            false
+        };
+        Ok(Response::new(CancelQueueResponse { success }))
     }
 
     async fn list_servers(
