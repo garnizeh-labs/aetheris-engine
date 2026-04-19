@@ -24,9 +24,9 @@ aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtranspo
 aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.2.0" }
 
 # Protocol (published — garnizeh-labs/aetheris-protocol)
-aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
-aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
-aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }
+aetheris-protocol = { version = "0.2.4" }
+aetheris-encoder-serde = { version = "0.2.4" }
+aetheris-encoder-bitpack = { version = "0.2.4" }
 
 # Core Traits & Utilities
 thiserror = "2.0.18"
