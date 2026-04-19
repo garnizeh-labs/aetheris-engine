@@ -24,11 +24,12 @@ aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtranspo
 aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.3.1" }
 
 # Protocol (published — garnizeh-labs/aetheris-protocol)
-aetheris-protocol = { version = "0.2.4" }
-aetheris-encoder-serde = { version = "0.2.4" }
-aetheris-encoder-bitpack = { version = "0.2.4" }
+aetheris-protocol = { version = "0.2.5" }
+aetheris-encoder-serde = { version = "0.2.5" }
+aetheris-encoder-bitpack = { version = "0.2.5" }
 
 # Core Traits & Utilities
+futures = "0.3"
 thiserror = "2.0.18"
 async-trait = "0.1.89"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -66,10 +67,10 @@ tonic-web = "0.14"
 
 # Infrastructure & Observability
 tokio = { version = "1.51.1", features = ["full"] }
-tokio-util = { version = "0.7.13" }
-tokio-stream = { version = "0.1", features = ["net"] }
+tokio-util = { version = "0.7.18" }
+tokio-stream = { version = "0.1.18", features = ["net"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.19", features = [
+tracing-subscriber = { version = "0.3.23", features = [
     "env-filter",
     "json",
     "fmt",
@@ -97,5 +98,11 @@ chrono = { version = "0.4.44", features = ["serde"] }
 [profile.release]
 opt-level = 3
 lto = true
-strip = "symbols"
 codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+# [patch.crates-io]
+# aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
+# aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
+# aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }

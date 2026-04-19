@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use tokio::sync::broadcast;
 use tokio::time::{MissedTickBehavior, interval};
-use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug_span, error, info_span};
 
 use crate::auth::AuthServiceImpl;
@@ -45,7 +45,7 @@ impl TickScheduler {
         mut transport: Box<dyn GameTransport>,
         mut world: Box<dyn WorldState>,
         encoder: Box<dyn Encoder>,
-        shutdown: CancellationToken,
+        mut shutdown: broadcast::Receiver<()>,
     ) {
         #[allow(clippy::cast_precision_loss)]
         let tick_duration = Duration::from_secs_f64(1.0 / self.tick_rate as f64);
@@ -79,7 +79,7 @@ impl TickScheduler {
 
                     metrics::histogram!("aetheris_tick_duration_seconds").record(elapsed.as_secs_f64());
                 }
-                () = shutdown.cancelled() => {
+                _ = shutdown.recv() => {
                     tracing::info!("Server shutting down gracefully");
                     break;
                 }
@@ -167,7 +167,7 @@ impl TickScheduler {
                         client_id,
                         fragment,
                     } => {
-                        if let Some(data) = reassembler.add(client_id, fragment) {
+                        if let Some(data) = reassembler.ingest(client_id, fragment) {
                             (client_id, data, true)
                         } else {
                             continue;
@@ -179,7 +179,7 @@ impl TickScheduler {
                         if let Ok(NetworkEvent::Fragment { fragment, .. }) =
                             encoder.decode_event(&data)
                         {
-                            if let Some(reassembled) = reassembler.add(client_id, fragment) {
+                            if let Some(reassembled) = reassembler.ingest(client_id, fragment) {
                                 (client_id, reassembled, true)
                             } else {
                                 continue;
@@ -193,7 +193,7 @@ impl TickScheduler {
                         tracing::info!(client_id = ?id, "Client connected (awaiting auth)");
                         (id, Vec::new(), false)
                     }
-                    NetworkEvent::ClientDisconnected(id) => {
+                    NetworkEvent::ClientDisconnected(id) | NetworkEvent::Disconnected(id) => {
                         metrics::gauge!("aetheris_connected_clients").decrement(1.0);
                         if let Some((_, network_id)) = authenticated_clients.remove(&id) {
                             let _ = world.despawn_networked(network_id);
@@ -377,7 +377,7 @@ impl TickScheduler {
                 }
             }
             world.apply_updates(&updates);
-            reassembler.cleanup();
+            reassembler.prune();
         }
         metrics::histogram!("aetheris_stage_duration_seconds", "stage" => "apply")
             .record(t2.elapsed().as_secs_f64());

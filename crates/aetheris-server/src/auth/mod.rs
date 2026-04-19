@@ -21,13 +21,16 @@ use rusty_paseto::prelude::{
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use tonic::{Request, Response, Status};
+use tracing::warn;
 use ulid::Ulid;
 
 pub mod email;
 pub mod google;
+pub mod rate_limit;
 
 use email::EmailSender;
 use google::GoogleOidcClient;
+use rate_limit::{InMemoryRateLimiter, RateLimitType};
 
 pub struct OtpRecord {
     pub email: String,
@@ -48,6 +51,7 @@ pub struct AuthServiceImpl {
     google_client: Arc<Option<GoogleOidcClient>>,
     pub(crate) session_key: Arc<PasetoSymmetricKey<V4, Local>>,
     transport_key: Arc<PasetoSymmetricKey<V4, Local>>,
+    rate_limiter: InMemoryRateLimiter,
     bypass_enabled: bool,
 }
 
@@ -126,6 +130,7 @@ impl AuthServiceImpl {
             google_client: Arc::new(google_client),
             session_key: Arc::new(session_key),
             transport_key: Arc::new(transport_key),
+            rate_limiter: InMemoryRateLimiter::new(),
             bypass_enabled,
         }
     }
@@ -232,11 +237,21 @@ impl AuthService for AuthServiceImpl {
         &self,
         request: Request<OtpRequest>,
     ) -> Result<Response<OtpRequestAck>, Status> {
+        // M10146 — Rate Limiting (M1005 §3.4.2)
+        // 1. IP-based limit (30/h)
+        if let Some(addr) = request.remote_addr() {
+            let ip = addr.ip().to_string();
+            self.rate_limiter.check_limit(RateLimitType::Ip, &ip)?;
+        } else {
+            warn!("Request missing remote_addr; IP rate limiting skipped (check proxy config)");
+        }
+
         let req = request.into_inner();
         let email = Self::normalize_email(&req.email);
 
-        // TODO: Implement per-email 5/h and per-IP 30/h rate limits (M1005 §3.4.2)
-        // Link to spec: docs/roadmap/phase-1-playable-mvp/specs/M1005_control_plane_services.md
+        // 2. Email-based limit (5/h)
+        self.rate_limiter
+            .check_limit(RateLimitType::Email, &email)?;
 
         let mut rng = rand::rng();
         let code = format!("{:06}", rng.random_range(0..1_000_000));

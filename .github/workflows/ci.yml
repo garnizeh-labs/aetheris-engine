@@ -93,6 +93,8 @@ jobs:
         run: python3 scripts/doc_lint.py
       - name: Run Link Check
         run: python3 scripts/check_links.py
+      - name: Run Branding Check
+        run: python3 scripts/check_branding.py
       - name: Run Spelling Check
         run: codespell
 

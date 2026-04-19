@@ -6,7 +6,6 @@
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio_util::sync::CancellationToken;
 
 use aetheris_ecs_bevy::BevyWorldAdapter;
 use aetheris_protocol::auth::v1::{OtpRequest, OtpRequestAck};
@@ -54,7 +53,7 @@ async fn test_entity_hijacking_prevention() {
         encoder: Arc::new(aetheris_encoder_serde::SerdeEncoder::new()),
     };
 
-    let shutdown = CancellationToken::new();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid_a = ClientId(1);
     let cid_b = ClientId(2);
 
@@ -141,7 +140,7 @@ async fn test_entity_hijacking_prevention() {
 
     let handle = tokio::spawn(async move {
         scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown)
+            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
             .await;
     });
 

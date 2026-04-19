@@ -11,7 +11,7 @@ use aetheris_server::{
 use axum::Router;
 use axum::routing::post;
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
+use tokio::sync::broadcast;
 use tonic::codegen::http::{Method, header};
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tower_http::cors::{Any, CorsLayer};
@@ -135,14 +135,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matchmaking_service = MatchmakingServiceImpl::new(Arc::new(auth_service.clone()));
     let telemetry_service = AetherisTelemetryService::new();
 
-    let shutdown = CancellationToken::new();
+    let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     // M10105 — JSON telemetry HTTP server (for WASM fetch() path)
     // Runs on AETHERIS_TELEMETRY_HTTP_PORT (default 50055), separate from gRPC.
     // CORS allows all origins in dev; restricted in production (see CONTRIBUTING.md).
     {
         let telemetry_svc_clone = telemetry_service.clone();
-        let shutdown_http = shutdown.clone();
+        let mut shutdown_http = shutdown_tx.subscribe();
         let http_port: u16 = std::env::var("AETHERIS_TELEMETRY_HTTP_PORT")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -166,7 +166,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .expect("Failed to bind telemetry HTTP server");
             tracing::info!("Telemetry JSON endpoint on :{}/telemetry/json", http_port);
             axum::serve(listener, app)
-                .with_graceful_shutdown(async move { shutdown_http.cancelled().await })
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_http.recv().await;
+                })
                 .await
                 .ok();
         });
@@ -206,7 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let encoder = SerdeEncoder::new();
 
         let mut scheduler = TickScheduler::new(60, auth_service.clone());
-        let shutdown_clone = shutdown.clone();
+        let shutdown_clone = shutdown_tx.subscribe();
 
         let scheduler_handle = tokio::spawn(async move {
             scheduler
@@ -219,11 +221,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await;
         });
 
-        let shutdown_auth = shutdown.clone();
+        let shutdown_auth_tx = shutdown_tx.clone();
         tokio::spawn(async move {
             tokio::signal::ctrl_c().await.ok();
             tracing::info!("Shutdown signal received, triggering cancellation...");
-            shutdown_auth.cancel();
+            let _ = shutdown_auth_tx.send(());
         });
 
         tracing::info!(
@@ -279,7 +281,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         router
-            .serve_with_shutdown(addr, shutdown.cancelled())
+            .serve_with_shutdown(addr, async move {
+                let _ = shutdown_tx.subscribe().recv().await;
+            })
             .await?;
 
         tracing::info!("gRPC server drained, waiting for scheduler...");
@@ -288,11 +292,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(not(feature = "phase1"))]
     {
-        let shutdown_auth = shutdown.clone();
+        let shutdown_fallback_tx = shutdown_tx.clone();
         tokio::spawn(async move {
             tokio::signal::ctrl_c().await.ok();
             tracing::info!("Shutdown signal received, triggering cancellation...");
-            shutdown_auth.cancel();
+            let _ = shutdown_fallback_tx.send(());
         });
 
         let cors = if env == "production" {
@@ -342,7 +346,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         router
-            .serve_with_shutdown(addr, shutdown.cancelled())
+            .serve_with_shutdown(addr, async move {
+                let _ = shutdown_tx.subscribe().recv().await;
+            })
             .await?;
     }
 

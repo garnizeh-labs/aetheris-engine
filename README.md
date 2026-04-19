@@ -10,9 +10,11 @@ This repository implements the authoritative tick scheduler that drives the Aeth
 
 > For more details, see the [Architecture Design Document](docs/ENGINE_DESIGN.md).
 >
-> 🚀 **Latest Milestone:** **Dependency Stabilization (M1019) complete!** Successfully migrated to Tonic 0.14, Axum 0.8, and OpenTelemetry 0.31. Fixed fragmentation regressions in the Phase 1 SerdeEncoder and aligned traits with Aetheris Protocol v0.2.1.
+> 🚀 **Latest Milestone:** **M10146** — Rate Limiting & Matchmaking Hardening (Completed)
 
-[![CI](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml)
+[![Build Status](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/garnizeh-labs/aetheris-engine/actions)
+[![Crates.io](https://img.shields.io/crates/v/aetheris-engine.svg)](https://crates.io/crates/aetheris-engine)
+[![Docs.rs](https://docs.rs/aetheris-engine/badge.svg)](https://docs.rs/aetheris-engine)
 [![Rust Version](https://img.shields.io/badge/rust-1.95.0%2B-blue.svg?logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
