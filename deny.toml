@@ -37,8 +37,8 @@ ignore = [
 # Warn on duplicates; promote to deny once P1 deps are stabilised.
 multiple-versions = "warn"
 skip = [
-    "wit-bindgen",
-    "hashbrown",
+    { crate = "wit-bindgen@0.57.1", reason = "temporary: transitive dep via component model; revisit when ecosystem stabilizes" },
+    { crate = "hashbrown@0.17.0", reason = "temporary: transitive dep via multiple ecosystem crates; revisit when unified" },
 ]
 
 [sources]

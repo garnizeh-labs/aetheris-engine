@@ -161,6 +161,11 @@ async fn test_server_loop_1000_ticks() {
 
     tokio::time::sleep(Duration::from_millis(1500)).await;
     handle.abort();
+    match handle.await {
+        Ok(()) => {}
+        Err(e) if e.is_cancelled() => {}
+        Err(e) => panic!("Scheduler task panicked: {e:?}"),
+    }
 }
 
 #[derive(Clone)]
@@ -197,9 +202,11 @@ impl GameTransport for TransportRef {
         let t = self.0.transport.lock().await;
         t.broadcast_unreliable(data).await
     }
-    async fn poll_events(&mut self) -> Result<Vec<NetworkEvent>, aetheris_protocol::error::TransportError> {
+    async fn poll_events(
+        &mut self,
+    ) -> Result<Vec<NetworkEvent>, aetheris_protocol::error::TransportError> {
         let mut t = self.0.transport.lock().await;
-        Ok(t.poll_events().await.unwrap())
+        t.poll_events().await
     }
     async fn connected_client_count(&self) -> usize {
         let t = self.0.transport.lock().await;
@@ -365,6 +372,11 @@ async fn test_client_connect_and_replication() {
     assert_eq!(&p[19..], &[1, 2, 3]);
 
     handle.abort();
+    match handle.await {
+        Ok(()) => {}
+        Err(e) if e.is_cancelled() => {}
+        Err(e) => panic!("Scheduler task panicked: {e:?}"),
+    }
 }
 
 #[tokio::test]
@@ -438,6 +450,11 @@ async fn test_full_integration_suite() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     handle.abort();
+    match handle.await {
+        Ok(()) => {}
+        Err(e) if e.is_cancelled() => {}
+        Err(e) => panic!("Scheduler task panicked: {e:?}"),
+    }
 }
 
 #[tokio::test]
@@ -513,6 +530,11 @@ async fn test_consecutive_dropped_packets_interpolation() {
     assert_eq!(tick7_packet[11], 7, "Seventh packet should be tick 7");
 
     handle.abort();
+    match handle.await {
+        Ok(()) => {}
+        Err(e) if e.is_cancelled() => {}
+        Err(e) => panic!("Scheduler task panicked: {e:?}"),
+    }
 }
 
 #[tokio::test]
@@ -568,6 +590,11 @@ async fn test_wasm_mtu_handling_simulation() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     handle.abort();
+    match handle.await {
+        Ok(()) => {}
+        Err(e) if e.is_cancelled() => {}
+        Err(e) => panic!("Scheduler task panicked: {e:?}"),
+    }
 }
 
 #[tokio::test]
@@ -712,4 +739,9 @@ async fn test_large_delta_fragmentation() {
     assert!(found, "Reassembled delta was not applied to the world");
 
     handle.abort();
+    match handle.await {
+        Ok(()) => {}
+        Err(e) if e.is_cancelled() => {}
+        Err(e) => panic!("Scheduler task panicked: {e:?}"),
+    }
 }

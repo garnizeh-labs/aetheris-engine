@@ -311,10 +311,9 @@ impl GameTransport for RenetTransport {
                 ServerEvent::ClientConnected { client_id } => {
                     let addr = transport.client_addr(client_id);
                     let allowed = if let Some(addr) = addr {
-                        let mut rate_limiter = self
-                            .rate_limiter
-                            .lock()
-                            .map_err(|e| TransportError::Io(std::io::Error::other(e.to_string())))?;
+                        let mut rate_limiter = self.rate_limiter.lock().map_err(|e| {
+                            TransportError::Io(std::io::Error::other(e.to_string()))
+                        })?;
                         rate_limiter.check(addr.ip())
                     } else {
                         true
@@ -330,10 +329,9 @@ impl GameTransport for RenetTransport {
                         );
                         // Suppress both Connected and future Disconnected events for this client
                         // to satisfy tests while keeping metrics balanced (delta = 0).
-                        let mut suppressed = self
-                            .suppressed_disconnects
-                            .lock()
-                            .map_err(|e| TransportError::Io(std::io::Error::other(e.to_string())))?;
+                        let mut suppressed = self.suppressed_disconnects.lock().map_err(|e| {
+                            TransportError::Io(std::io::Error::other(e.to_string()))
+                        })?;
                         suppressed.insert(client_id);
                         server.disconnect(client_id);
                     }

@@ -18,8 +18,9 @@ pub struct TickScheduler {
     current_tick: u64,
     auth_service: AuthServiceImpl,
 
-    /// Maps `ClientId` -> Session JTI
-    authenticated_clients: HashMap<aetheris_protocol::types::ClientId, String>,
+    /// Maps `ClientId` -> (Session JTI, spawned `NetworkId`)
+    authenticated_clients:
+        HashMap<aetheris_protocol::types::ClientId, (String, aetheris_protocol::types::NetworkId)>,
     reassembler: Reassembler,
     next_message_id: u32,
 }
@@ -93,7 +94,10 @@ impl TickScheduler {
         world: &mut dyn WorldState,
         encoder: &dyn Encoder,
         auth_service: &AuthServiceImpl,
-        authenticated_clients: &mut HashMap<aetheris_protocol::types::ClientId, String>,
+        authenticated_clients: &mut HashMap<
+            aetheris_protocol::types::ClientId,
+            (String, aetheris_protocol::types::NetworkId),
+        >,
         reassembler: &mut Reassembler,
         next_message_id: &mut u32,
         encode_buffer: &mut [u8],
@@ -136,14 +140,16 @@ impl TickScheduler {
         // Periodic Session Validation (every 60 ticks / ~1s)
         if tick.is_multiple_of(60) {
             let mut to_remove = Vec::new();
-            for (&client_id, jti) in authenticated_clients.iter() {
+            for (&client_id, (jti, _)) in authenticated_clients.iter() {
                 if !auth_service.is_session_authorized(jti, Some(tick)) {
                     tracing::warn!(?client_id, "Session invalidated during periodic check");
                     to_remove.push(client_id);
                 }
             }
             for client_id in to_remove {
-                authenticated_clients.remove(&client_id);
+                if let Some((_, network_id)) = authenticated_clients.remove(&client_id) {
+                    let _ = world.despawn_networked(network_id);
+                }
                 metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
             }
         }
@@ -189,7 +195,9 @@ impl TickScheduler {
                     }
                     NetworkEvent::ClientDisconnected(id) => {
                         metrics::gauge!("aetheris_connected_clients").decrement(1.0);
-                        authenticated_clients.remove(&id);
+                        if let Some((_, network_id)) = authenticated_clients.remove(&id) {
+                            let _ = world.despawn_networked(network_id);
+                        }
                         tracing::info!(client_id = ?id, "Client disconnected");
                         (id, Vec::new(), false)
                     }
@@ -209,12 +217,18 @@ impl TickScheduler {
                         metrics::counter!("aetheris_transport_events_total", "type" => "session_closed")
                         .increment(1);
                         tracing::warn!(client_id = ?id, "WebTransport session closed");
+                        if let Some((_, network_id)) = authenticated_clients.remove(&id) {
+                            let _ = world.despawn_networked(network_id);
+                        }
                         (id, Vec::new(), false)
                     }
                     NetworkEvent::StreamReset(id) => {
                         metrics::counter!("aetheris_transport_events_total", "type" => "stream_reset")
                         .increment(1);
                         tracing::error!(client_id = ?id, "WebTransport stream reset");
+                        if let Some((_, network_id)) = authenticated_clients.remove(&id) {
+                            let _ = world.despawn_networked(network_id);
+                        }
                         (id, Vec::new(), false)
                     }
                     NetworkEvent::Auth { .. }
@@ -233,11 +247,13 @@ impl TickScheduler {
                 }
 
                 // Stage 2.2: Auth & Protocol Decode
-                let jti = if let Some(jti) = authenticated_clients.get(&client_id) {
+                let jti = if let Some((jti, _)) = authenticated_clients.get(&client_id) {
                     // Re-validate session on every message to refresh sliding window / catch revocation
                     if !auth_service.is_session_authorized(jti, Some(tick)) {
                         tracing::warn!(?client_id, "Session revoked; dropping client");
-                        authenticated_clients.remove(&client_id);
+                        if let Some((_, network_id)) = authenticated_clients.remove(&client_id) {
+                            let _ = world.despawn_networked(network_id);
+                        }
                         metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
                         continue;
                     }
@@ -252,8 +268,8 @@ impl TickScheduler {
                             auth_service.validate_and_get_jti(&session_token, Some(tick))
                         {
                             tracing::info!(?client_id, "Client authenticated successfully");
-                            authenticated_clients.insert(client_id, jti);
-                            world.spawn_networked_for(client_id);
+                            let network_id = world.spawn_networked_for(client_id);
+                            authenticated_clients.insert(client_id, (jti, network_id));
                             continue;
                         }
                         tracing::warn!(?client_id, "Client failed authentication");
@@ -554,5 +570,6 @@ impl TickScheduler {
 /// In Phase 3, this will be tied to the account's permission level.
 fn can_run_playground_command(jti: &str) -> bool {
     // Current dev credential in Aetheris Playground always generates jti="admin"
-    jti == "admin" || std::env::var("AETHERIS_ENV").unwrap_or_else(|_| "dev".to_string()) == "dev"
+    // Fail closed: AETHERIS_ENV must be explicitly set to "dev"; absence is not treated as dev.
+    jti == "admin" || std::env::var("AETHERIS_ENV").ok().as_deref() == Some("dev")
 }
