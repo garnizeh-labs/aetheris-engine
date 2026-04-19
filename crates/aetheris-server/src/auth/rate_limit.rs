@@ -39,6 +39,7 @@ impl InMemoryRateLimiter {
     /// Checks if a request should be rate-limited.
     ///
     /// returns `Ok(())` if allowed, or `Err(Status)` if limited.
+    #[allow(clippy::duration_suboptimal_units)]
     pub fn check_limit(&self, limit_type: RateLimitType, identity: &str) -> Result<(), Status> {
         let key = (limit_type, identity.to_string());
         let now = Instant::now();
@@ -96,6 +97,7 @@ impl InMemoryRateLimiter {
 }
 
 #[cfg(test)]
+#[allow(clippy::duration_suboptimal_units)]
 mod tests {
     use super::*;
 
