@@ -7,6 +7,9 @@
 
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::too_many_lines)]
+// `Duration::from_mins` is still unstable in Rust 1.95.0 (duration_constructors_lite #140881).
+// Suppressing the lint that insists on using it until the feature stabilizes.
+#![allow(clippy::duration_suboptimal_units)]
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::net::SocketAddr;
