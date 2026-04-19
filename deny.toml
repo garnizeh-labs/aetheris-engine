@@ -12,7 +12,6 @@ allow = [
     "Zlib",                # Required by 'miniz_oxide' and similar compression crates
     "Unicode-3.0",         # Required by 'unicode-ident'
     "CC0-1.0",             # Required by 'hexf-parse' (wgpu dependency)
-    "MPL-2.0",             # Required by 'webpki-roots' (openidconnect dep)
     "0BSD",                # Required by 'quoted_printable' (lettre dep)
 ]
 
@@ -22,9 +21,6 @@ unmaintained = "all"
 # Deny yanked crates — a yanked crate may have been pulled for a security reason.
 yanked = "deny"
 ignore = [
-    # rustls-pemfile: 1.x is unmaintained (transitive dep via tonic).
-    # Tracking: #1234 Revisit: 2026-06-01
-    "RUSTSEC-2025-0134",
     # paste: unmaintained (transitive dep via tikv-jemalloc-ctl).
     # Tracking: #1235 Revisit: 2026-06-01
     "RUSTSEC-2024-0436",
