@@ -171,10 +171,10 @@ impl WorldState for BevyWorldAdapter {
             .world
             .query::<(&mut TransformComponent, &mut Velocity)>();
         for (mut transform, mut velocity) in query.iter_mut(&mut self.world) {
-            if (transform.0.z - 0.0).abs() > f32::EPSILON {
+            if transform.0.z.abs() > f32::EPSILON {
                 transform.0.z = 0.0;
             }
-            if (velocity.dz - 0.0).abs() > f32::EPSILON {
+            if velocity.dz.abs() > f32::EPSILON {
                 velocity.dz = 0.0;
             }
         }
@@ -285,6 +285,7 @@ impl WorldState for BevyWorldAdapter {
 
         // Map entity kind to components (M1020 §3.2)
         match kind {
+            // 1 = Player Interceptor, 2 = AI Interceptor (GDD §4.2)
             1 | 2 => {
                 // Interceptor (GDD §4.2 / M1020 §3.1)
                 entity_mut.insert((
@@ -445,7 +446,7 @@ mod tests {
     #[test]
     fn test_replication_roundtrip() {
         let mut adapter = BevyWorldAdapter::default();
-        let kind = ComponentKind(1);
+        let kind = ComponentKind(200);
         adapter.register_replicator(Arc::new(DefaultReplicator::<MockPos>::new(kind)));
 
         // Spawn entity
