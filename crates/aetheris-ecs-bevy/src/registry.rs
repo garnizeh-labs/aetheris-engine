@@ -33,6 +33,7 @@ pub struct ComponentDescriptor {
     pub kind: ComponentKind,
     pub name: &'static str,
     pub scope: ComponentScope,
+    pub classification: ComponentClassification,
     pub replicator: BoxedReplicator,
 }
 
@@ -157,7 +158,7 @@ impl<T: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>>> ReplicatableCom
 /// Registers all 30 canonical Void Rush components into the provided registry.
 ///
 /// This implements the authoritative component list for M1020.
-#[allow(clippy::wildcard_imports)]
+#[allow(clippy::wildcard_imports, clippy::too_many_lines)]
 pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
     use crate::components::*;
 
@@ -168,6 +169,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(1),
         name: "Transform",
         scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<TransformComponent>::new(ComponentKind(
             1,
         ))),
@@ -178,6 +180,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(2),
         name: "Velocity",
         scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<Velocity>::new(ComponentKind(2))),
     });
 
@@ -186,6 +189,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(3),
         name: "ShipStats",
         scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<ShipStatsComponent>::new(ComponentKind(
             3,
         ))),
@@ -196,6 +200,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(4),
         name: "Loadout",
         scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<Loadout>::new(ComponentKind(4))),
     });
 
@@ -204,6 +209,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(5),
         name: "ShipClass",
         scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<ShipClassComponent>::new(ComponentKind(
             5,
         ))),
@@ -214,6 +220,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(6),
         name: "PlayerName",
         scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<PlayerName>::new(ComponentKind(6))),
     });
 
@@ -222,6 +229,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(7),
         name: "FactionTag",
         scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<FactionTag>::new(ComponentKind(7))),
     });
 
@@ -230,6 +238,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(8),
         name: "AsteroidHP",
         scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<AsteroidHP>::new(ComponentKind(8))),
     });
 
@@ -238,6 +247,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(9),
         name: "AsteroidYield",
         scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<AsteroidYield>::new(ComponentKind(9))),
     });
 
@@ -246,6 +256,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(10),
         name: "LootDrop",
         scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<LootDrop>::new(ComponentKind(10))),
     });
 
@@ -254,6 +265,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(11),
         name: "Station",
         scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<Station>::new(ComponentKind(11))),
     });
 
@@ -262,6 +274,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(12),
         name: "JumpGate",
         scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<JumpGate>::new(ComponentKind(12))),
     });
 
@@ -270,6 +283,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(13),
         name: "ProjectileMarker",
         scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<ProjectileMarker>::new(ComponentKind(
             13,
         ))),
@@ -280,6 +294,7 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         kind: ComponentKind(14),
         name: "DockedState",
         scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<DockedState>::new(ComponentKind(14))),
     });
 }

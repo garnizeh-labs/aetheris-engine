@@ -98,7 +98,7 @@ server-release:
 server-obs:
     @mkdir -p logs
     cargo build -p aetheris-server --release --features phase1
-    LOG_FORMAT=json OTEL_EXPORTER_OTLP_ENDPOINT=<http://localhost:4317> RUST_LOG=info \
+    LOG_FORMAT=json OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 RUST_LOG=info \
         AETHERIS_AUTH_BYPASS=1 ./target/release/aetheris-server >> logs/server.log 2>&1 &
 
 # Stop all background processes

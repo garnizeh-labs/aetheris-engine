@@ -202,6 +202,7 @@ impl WorldState for BevyWorldAdapter {
                 y: 0.0,
                 z: 0.0, // Enforced Z-clamp
                 rotation: 0.0,
+                entity_type: 0, // Default/Unknown
             }),
             Velocity {
                 dx: 0.0,
@@ -269,6 +270,7 @@ impl WorldState for BevyWorldAdapter {
                 y,
                 z: 0.0, // Enforced Z-clamp (M1015/M1020)
                 rotation: rot,
+                entity_type: kind,
             }),
             crate::components::Velocity {
                 dx: 0.0,
