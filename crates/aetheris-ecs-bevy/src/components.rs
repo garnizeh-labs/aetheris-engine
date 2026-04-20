@@ -220,6 +220,10 @@ pub struct LatestInput {
     pub last_client_tick: u64,
 }
 
+/// Resource used to track the authoritative server tick.
+#[derive(bevy_ecs::prelude::Resource, Debug, Clone, Copy, Default)]
+pub struct ServerTick(pub u64);
+
 #[derive(Component, Debug, Clone)]
 pub struct DamageTracker {
     pub last_damager: Option<NetworkId>, // Using NetworkId for consistency

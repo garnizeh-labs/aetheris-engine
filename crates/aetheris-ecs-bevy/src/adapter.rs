@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use aetheris_protocol::error::WorldError;
 use aetheris_protocol::events::{ComponentUpdate, ReplicationEvent};
 use aetheris_protocol::traits::WorldState;
-use aetheris_protocol::types::{ClientId, ComponentKind, LocalId, NetworkId, ShipClass, ShipStats};
+use aetheris_protocol::types::{
+    ClientId, ComponentKind, LocalId, NetworkId, NetworkIdAllocator, ShipClass, ShipStats,
+};
 
 use crate::Networked;
 use crate::components::{
@@ -36,15 +38,18 @@ impl Default for BevyWorldAdapter {
 impl BevyWorldAdapter {
     /// Creates a new adapter wrapping the given Bevy world.
     pub fn new(world: World, tick_rate: u64) -> Self {
-        Self {
+        assert!(tick_rate > 0, "tick_rate must be > 0");
+        let mut adapter = Self {
             world,
             bimap: BiHashMap::new(),
             owners: std::collections::HashMap::new(),
             replicators: BTreeMap::new(),
-            allocator: aetheris_protocol::types::NetworkIdAllocator::new(1),
+            allocator: NetworkIdAllocator::new(1),
             last_extraction_tick: None,
             tick_rate,
-        }
+        };
+        adapter.world.insert_resource(crate::components::ServerTick(0));
+        adapter
     }
 
     /// Registers a component replicator for a specific `ComponentKind`.
@@ -164,6 +169,11 @@ impl WorldState for BevyWorldAdapter {
         // the same `extract_deltas` call.  Without this pre-increment the spawned entities
         // share the same tick as `last_extraction_tick` and are silently skipped.
         self.world.increment_change_tick();
+
+        // Increment authoritative server tick resource
+        if let Some(mut tick) = self.world.get_resource_mut::<crate::components::ServerTick>() {
+            tick.0 = tick.0.saturating_add(1);
+        }
     }
 
     #[tracing::instrument(skip(self))]

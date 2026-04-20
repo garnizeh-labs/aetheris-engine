@@ -199,7 +199,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let wt = WebTransportBridge::new(wt_addr).await;
         transport.add_transport(Box::new(wt));
 
-        let tick_rate = 60;
+        let config = aetheris_server::config::ServerConfig::load();
+        let tick_rate = config.tick_rate;
         let mut world = BevyWorldAdapter::new(bevy_ecs::world::World::new(), tick_rate);
         let mut registry = aetheris_ecs_bevy::registry::ComponentRegistry::new();
         aetheris_ecs_bevy::registry::register_void_rush_components(&mut registry);

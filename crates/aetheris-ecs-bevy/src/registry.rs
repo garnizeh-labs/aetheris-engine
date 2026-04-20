@@ -152,6 +152,8 @@ impl<T: ReplicatableComponent> ComponentReplicator for DefaultReplicator<T> {
 
 /// Specialized replicator for client input commands.
 /// Implements anti-replay logic by validating client ticks.
+const MAX_FORWARD_TICK_JUMP: u64 = 600;
+
 pub struct InputCommandReplicator;
 
 impl ComponentReplicator for InputCommandReplicator {
@@ -179,18 +181,25 @@ impl ComponentReplicator for InputCommandReplicator {
             return;
         };
 
+        // Fetch server tick before borrowing entity mutably to avoid borrow checker conflicts
+        use crate::components::ServerTick;
+        let server_tick = world.get_resource::<ServerTick>().map_or(0, |t| t.0);
+
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             if let Some(mut latest) = entity_mut.get_mut::<LatestInput>() {
-                // Anti-replay: Only apply if the new tick is strictly greater
-                if command.tick > latest.last_client_tick {
+                // Anti-replay: Only apply if the new tick is strictly greater and within a reasonable window
+                if command.tick > latest.last_client_tick && command.tick <= latest.last_client_tick.saturating_add(MAX_FORWARD_TICK_JUMP) {
                     latest.command = command;
                     latest.last_client_tick = command.tick;
                 }
             } else {
-                // First input for this entity
+                // First input for this entity: validate against authoritative server tick
+                // Allow some leeway for initial connection RTT, but cap the forward jump
+                let capped_tick = command.tick.min(server_tick.saturating_add(MAX_FORWARD_TICK_JUMP));
+                
                 entity_mut.insert(LatestInput {
                     command,
-                    last_client_tick: command.tick,
+                    last_client_tick: capped_tick,
                 });
             }
         }

@@ -71,8 +71,8 @@ Aetheris separates concerns into four orthogonal subsystems. Each subsystem is d
 The game loop itself is a fixed-timestep tick. On every tick:
 
 1. **Poll** — `GameTransport::poll_events()` drains all inbound network events.
-2. **Authorize** — `InputCommandReplicator` validates client ownership and tick monotonicity (anti-replay).
-3. **Apply** — `WorldState::apply_updates()` injects validated component updates and inputs into the ECS.
+2. **Authorize** — `InputCommandReplicator` enforces monotonically increasing client ticks (anti-replay).
+3. **Apply** — `WorldState::apply_updates()` performs the ownership gate and injects validated component updates and inputs into the ECS.
 4. **Simulate** — The ECS runs authoritative systems (e.g., Newtonian physics, AI).
 5. **Extract** — `WorldState::extract_deltas()` produces `ReplicationEvent`s for all changed components.
 6. **Encode & Send** — The `ChannelClassifier` assigns each delta to a [Priority Channel](PRIORITY_CHANNELS_DESIGN.md); the `Encoder` and `GameTransport` dispatch P0→P5, shedding low-priority channels under congestion.
@@ -81,7 +81,7 @@ Priority Channels are developer-configurable via the `ChannelRegistry` builder A
 
 This six-stage pipeline is the heartbeat of the engine. Every architectural decision below exists to make each stage faster, smaller, and more predictable.
 
-> **Canonical References:** Stage 2 input processing is detailed in [INPUT_PIPELINE_DESIGN.md](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/INPUT_PIPELINE_DESIGN.md). Stage 4 interest filtering is detailed in [INTEREST_MANAGEMENT_DESIGN.md](INTEREST_MANAGEMENT_DESIGN.md) and [SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md).
+> **Canonical References:** Stage 3 input processing is detailed in [INPUT_PIPELINE_DESIGN.md](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/INPUT_PIPELINE_DESIGN.md). Stage 5 interest filtering is detailed in [INTEREST_MANAGEMENT_DESIGN.md](INTEREST_MANAGEMENT_DESIGN.md) and [SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md).
 
 ---
 

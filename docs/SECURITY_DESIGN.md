@@ -570,7 +570,7 @@ impl Encoder for SerdeEncoder {
 Aetheris enforces twofold monotonicity in Stage 2 (Authorize) to prevent historical state injection:
 
 1. **Protocol Sequence**: Built-in transport-level sequence validation rejects replayed UDP packets.
-2. **Tick Monotonicity**: The `InputCommandReplicator` maintains a per-client `last_processed_tick`. Any inbound `InputCommand` with a `client_tick <= last_processed_tick` is dropped. This prevents "look-back" attacks where an attacker captures a valid past input to re-run physics from an earlier state.
+2. **Tick Monotonicity**: The `InputCommandReplicator` maintains a `last_client_tick` for each target entity via the `LatestInput` component. Any inbound `InputCommand` with a `client_tick <= latest.last_client_tick` for that specific entity is dropped. This prevents "look-back" attacks where an attacker captures a valid past input to re-run physics from an earlier state.
 
 Each client message carries a monotonically increasing sequence number. The server maintains a per-client expected sequence and rejects out-of-order or replayed messages:
 

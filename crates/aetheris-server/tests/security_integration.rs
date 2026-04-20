@@ -43,7 +43,7 @@ impl TryFrom<Vec<u8>> for MockPos {
 async fn test_entity_hijacking_prevention() {
     let _ = tracing_subscriber::fmt::try_init();
     let bevy_world = World::new();
-    let mut adapter = BevyWorldAdapter::new(bevy_world, 60);
+    let mut adapter = BevyWorldAdapter::new(bevy_world, 100);
     adapter.register_replicator(std::sync::Arc::new(aetheris_ecs_bevy::DefaultReplicator::<
         MockPos,
     >::new(ComponentKind(1))));
