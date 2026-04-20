@@ -1,12 +1,17 @@
-# Aetheris Engine
+<div align="center">
+  <h1>Aetheris Engine</h1>
+  <p>The deterministic heart and authoritative simulation core of the Aetheris multiplayer platform.</p>
 
-The deterministic heart and authoritative simulation core of the Aetheris multiplayer platform.
+  [![CI](https://img.shields.io/github/actions/workflow/status/garnizeh-labs/aetheris-engine/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/garnizeh-labs/aetheris-engine/actions)
+  [![Rust Version](https://img.shields.io/badge/rust-1.95.0%2B-blue?style=flat-square&logo=rust)](https://www.rust-lang.org/)
+  [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg?style=flat-square)](https://conventionalcommits.org)
+</div>
 
-## The Heart of the Simulation — Authoritative Determinism
+---
+
+## ⚙️ Authoritative Determinism
 
 In modern multiplayer architecture, the server is more than a message relay — it is the absolute source of truth. **Aetheris Engine** provides the sub-millisecond precision, high-frequency tick scheduling, and deterministic ECS bridging required to synchronize complex worlds across unreliable networks.
-
-This repository implements the authoritative tick scheduler that drives the Aetheris simulation. It bridges the gap between the wire protocol and the deep simulation state, ensuring every entity, component, and interaction is validated and replicated with cryptographic integrity.
 
 > [!IMPORTANT]
 > 🚀 **Current State:** **VS-01 (One Ship, One Sector) complete!** Protocol v0.2.8 & Authoritative Physics.
