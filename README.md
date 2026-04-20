@@ -25,6 +25,8 @@ In modern multiplayer architecture, the server is more than a message relay — 
 | **`aetheris-ecs-bevy`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-ecs-bevy?style=flat-square)](https://crates.io/crates/aetheris-ecs-bevy) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-ecs-bevy?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-ecs-bevy) |
 | **`aetheris-transport-renet`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-transport-renet?style=flat-square)](https://crates.io/crates/aetheris-transport-renet) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-transport-renet?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-transport-renet) |
 | **`aetheris-transport-webtransport`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-transport-webtransport?style=flat-square)](https://crates.io/crates/aetheris-transport-webtransport) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-transport-webtransport?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-transport-webtransport) |
+| **`aetheris-transport-quinn`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-transport-quinn?style=flat-square)](https://crates.io/crates/aetheris-transport-quinn) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-transport-quinn?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-transport-quinn) |
+| **`aetheris-ecs-custom`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-ecs-custom?style=flat-square)](https://crates.io/crates/aetheris-ecs-custom) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-ecs-custom?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-ecs-custom) |
 
 ## Workspace Components
 
@@ -32,7 +34,9 @@ The engine is built on modular, specialized crates for maximum reuse and testing
 
 - **[`aetheris-server`](crates/aetheris-server)**: The authoritative heartbeat. Handles tick scheduling (60Hz), delta extraction, and multi-transport orchestration.
 - **[`aetheris-ecs-bevy`](crates/aetheris-ecs-bevy)**: The primary simulation adapter. Bridges Aetheris Protocol traits to the Bevy ECS ecosystem with zero-cost abstractions.
+- **[`aetheris-ecs-custom`](crates/aetheris-ecs-custom)**: Phase 3 custom SoA ECS. Optimized for extreme entity densities and cache-friendly iteration.
 - **[`aetheris-transport-renet`](crates/aetheris-transport-renet)**: Phase 1 UDP transport using the `renet` protocol. Optimized for raw performance and low latency.
+- **[`aetheris-transport-quinn`](crates/aetheris-transport-quinn)**: Phase 3 native QUIC transport. Provides reliable streams and unreliable datagrams with modern security.
 - **[`aetheris-transport-webtransport`](crates/aetheris-transport-webtransport)**: Phase 3 browser-native transport. Enables sub-millisecond latency for web-based clients.
 
 ## Quickstart
