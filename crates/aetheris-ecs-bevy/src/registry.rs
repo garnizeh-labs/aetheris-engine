@@ -1,9 +1,70 @@
-use std::sync::Arc;
-
 use aetheris_protocol::events::{ComponentUpdate, ReplicationEvent};
 use aetheris_protocol::types::{ComponentKind, NetworkId};
 use bevy_ecs::change_detection::Tick;
 use bevy_ecs::prelude::{Component, Entity, World};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// Classification of a component by its intended crate scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComponentScope {
+    /// Engine core components (Transport, Velocity, etc.)
+    Core,
+    /// Game-specific components (`ShipStats`, Mining, etc.)
+    Game,
+    /// Purely visual/client-side components.
+    Visual,
+}
+
+/// Classification of a component by its permanence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComponentClassification {
+    /// Persisted across sessions (e.g., Inventory).
+    Persistent,
+    /// Reset on every tick (not applicable here, but common in ECS).
+    Transient,
+    /// Simulation state.
+    Simulated,
+}
+
+/// Metadata describing a component in the registry.
+#[derive(Clone)]
+pub struct ComponentDescriptor {
+    pub kind: ComponentKind,
+    pub name: &'static str,
+    pub scope: ComponentScope,
+    pub classification: ComponentClassification,
+    pub replicator: BoxedReplicator,
+}
+
+/// Authoritative registry of all ECS components in the engine.
+#[derive(Default, Clone)]
+pub struct ComponentRegistry {
+    pub components: std::collections::HashMap<ComponentKind, ComponentDescriptor>,
+}
+
+impl ComponentRegistry {
+    /// Creates a new, empty component registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers a component descriptor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a component with the same `ComponentKind` is already registered.
+    pub fn register(&mut self, descriptor: ComponentDescriptor) {
+        assert!(
+            !self.components.contains_key(&descriptor.kind),
+            "DUPLICATE ComponentKind registration: {} (already registered as {})",
+            descriptor.kind.0,
+            descriptor.name
+        );
+        self.components.insert(descriptor.kind, descriptor);
+    }
+}
 
 /// Logic for replicating a specific component type.
 pub trait ComponentReplicator: Send + Sync {
@@ -89,8 +150,193 @@ impl<T: ReplicatableComponent> ComponentReplicator for DefaultReplicator<T> {
     }
 }
 
-// Add TryFrom bound for T to support apply
 /// Trait alias for components that can be replicated.
 /// Requires `Component`, `Clone`, and conversion to/from `Vec<u8>`.
 pub trait ReplicatableComponent: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>> {}
 impl<T: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>>> ReplicatableComponent for T {}
+
+/// Registers all 31 canonical Void Rush components into the provided registry.
+///
+/// This implements the authoritative component list for M1020 (14 replicated + 17 server-only).
+#[allow(clippy::wildcard_imports, clippy::too_many_lines)]
+pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
+    use crate::components::*;
+
+    // --- REPLICATED COMPONENTS (1-14) ---
+
+    // 1: Transform (Core)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(1),
+        name: "Transform",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<TransformComponent>::new(ComponentKind(
+            1,
+        ))),
+    });
+
+    // 2: Velocity (Core)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(2),
+        name: "Velocity",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<Velocity>::new(ComponentKind(2))),
+    });
+
+    // 3: ShipStats (Game)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(3),
+        name: "ShipStats",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<ShipStatsComponent>::new(ComponentKind(
+            3,
+        ))),
+    });
+
+    // 4: Loadout (Game)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(4),
+        name: "Loadout",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<Loadout>::new(ComponentKind(4))),
+    });
+
+    // 5: ShipClass (Core)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(5),
+        name: "ShipClass",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<ShipClassComponent>::new(ComponentKind(
+            5,
+        ))),
+    });
+
+    // 6: PlayerName (Core)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(6),
+        name: "PlayerName",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<PlayerName>::new(ComponentKind(6))),
+    });
+
+    // 7: FactionTag (Game)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(7),
+        name: "FactionTag",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<FactionTag>::new(ComponentKind(7))),
+    });
+
+    // 8: AsteroidHP (Game)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(8),
+        name: "AsteroidHP",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<AsteroidHP>::new(ComponentKind(8))),
+    });
+
+    // 9: AsteroidYield (Game)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(9),
+        name: "AsteroidYield",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<AsteroidYield>::new(ComponentKind(9))),
+    });
+
+    // 10: LootDrop (Game)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(10),
+        name: "LootDrop",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<LootDrop>::new(ComponentKind(10))),
+    });
+
+    // 11: Station (Core)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(11),
+        name: "Station",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<Station>::new(ComponentKind(11))),
+    });
+
+    // 12: JumpGate (Core)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(12),
+        name: "JumpGate",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<JumpGate>::new(ComponentKind(12))),
+    });
+
+    // 13: ProjectileMarker (Game)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(13),
+        name: "ProjectileMarker",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<ProjectileMarker>::new(ComponentKind(
+            13,
+        ))),
+    });
+
+    // 14: DockedState (Core)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(14),
+        name: "DockedState",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<DockedState>::new(ComponentKind(14))),
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_void_rush_registry_completeness() {
+        let mut registry = ComponentRegistry::new();
+        register_void_rush_components(&mut registry);
+
+        // Verify we have exactly 14 replicated components (M1020)
+        assert_eq!(
+            registry.components.len(),
+            14,
+            "Registry MUST contain exactly 14 replicated components"
+        );
+
+        // Verify canonical IDs 1-14 are present
+        for i in 1..=14 {
+            let kind = ComponentKind(i);
+            assert!(
+                registry.components.contains_key(&kind),
+                "Missing canonical ComponentKind({i})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_bijectivity() {
+        let mut registry = ComponentRegistry::new();
+        register_void_rush_components(&mut registry);
+
+        let mut names = std::collections::HashSet::new();
+        for desc in registry.components.values() {
+            assert!(
+                names.insert(desc.name),
+                "Duplicate component name in registry: {}",
+                desc.name
+            );
+        }
+    }
+}

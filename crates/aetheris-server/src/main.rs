@@ -200,11 +200,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         transport.add_transport(Box::new(wt));
 
         let mut world = BevyWorldAdapter::new(bevy_ecs::world::World::new());
-        world.register_replicator(std::sync::Arc::new(aetheris_ecs_bevy::DefaultReplicator::<
-            aetheris_ecs_bevy::Transform,
-        >::new(
-            aetheris_protocol::types::ComponentKind(1),
-        )));
+        let mut registry = aetheris_ecs_bevy::registry::ComponentRegistry::new();
+        aetheris_ecs_bevy::registry::register_void_rush_components(&mut registry);
+
+        for descriptor in registry.components.values() {
+            world.register_replicator(descriptor.replicator.clone());
+        }
+
         let encoder = SerdeEncoder::new();
 
         let mut scheduler = TickScheduler::new(60, auth_service.clone());

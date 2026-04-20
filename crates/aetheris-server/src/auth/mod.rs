@@ -329,7 +329,34 @@ impl AuthService for AuthServiceImpl {
                     .get_mut(&request_id)
                     .ok_or_else(|| Status::unauthenticated("Invalid credentials"))?;
 
+                // M1005 §3.4.1 — Authentication Bypass for Automated Integration Tests
+                // This block allows 'smoke-test@aetheris.dev' to login with pre-defined codes
+                // when AETHERIS_AUTH_BYPASS is enabled (strictly DEV/TEST environments only).
+                // TODO: In Phase 4, consider moving this logic to a dedicated Auth Sidecar.
                 if self.bypass_enabled && entry.email == "smoke-test@aetheris.dev" {
+                    // "000001" is the canonical 'Success' code for automated smoke tests and playground.
+                    if code == "000001" {
+                        tracing::warn!(email = entry.email, "Bypass authentication successful");
+                        let player_id = Self::derive_player_id("email", &entry.email);
+
+                        // Check if new player
+                        let is_new_player =
+                            self.player_registry.insert(player_id.clone(), ()).is_none();
+
+                        let (token, exp) = self.mint_session_token(&player_id)?;
+                        drop(entry);
+                        self.otp_store.remove(&request_id);
+
+                        return Ok(Response::new(LoginResponse {
+                            session_token: token,
+                            expires_at_unix_ms: exp,
+                            player_id,
+                            is_new_player,
+                            login_method: LoginMethod::EmailOtp as i32,
+                        }));
+                    }
+
+                    // "000000" is the canonical 'Failure' code used to validate client-side error handling.
                     if code == "000000" {
                         entry.attempts += 1;
                         if entry.attempts >= 3 {
@@ -338,31 +365,6 @@ impl AuthService for AuthServiceImpl {
                         }
                         return Err(Status::unauthenticated("Bypass: Forced failure for 000000"));
                     }
-
-                    if Utc::now() > entry.expires_at {
-                        drop(entry);
-                        self.otp_store.remove(&request_id);
-                        return Err(Status::deadline_exceeded("OTP expired"));
-                    }
-
-                    tracing::warn!(email = entry.email, "Bypass authentication successful");
-                    let player_id = Self::derive_player_id("email", &entry.email);
-
-                    // Check if new player
-                    let is_new_player =
-                        self.player_registry.insert(player_id.clone(), ()).is_none();
-
-                    let (token, exp) = self.mint_session_token(&player_id)?;
-                    drop(entry);
-                    self.otp_store.remove(&request_id);
-
-                    return Ok(Response::new(LoginResponse {
-                        session_token: token,
-                        expires_at_unix_ms: exp,
-                        player_id,
-                        is_new_player,
-                        login_method: LoginMethod::EmailOtp as i32,
-                    }));
                 }
 
                 if Utc::now() > entry.expires_at {
