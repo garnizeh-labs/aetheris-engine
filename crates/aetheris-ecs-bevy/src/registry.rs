@@ -175,8 +175,20 @@ impl ComponentReplicator for InputCommandReplicator {
 
     fn apply(&self, world: &mut World, entity: Entity, update: &ComponentUpdate) {
         use crate::components::LatestInput;
+        use crate::components::NetworkOwner;
         use crate::components::ServerTick;
         use aetheris_protocol::types::InputCommand;
+
+        // 1. Verify Ownership (M1013 §4.2)
+        // Entities missing Ownership(ClientId) MUST reject all client updates.
+        // This provides defense-in-depth even if the caller (Adapter) skipped the check.
+        if world.get::<NetworkOwner>(entity).is_none() {
+            tracing::warn!(
+                network_id = update.network_id.0,
+                "Rejected InputCommand: Entity missing Ownership"
+            );
+            return;
+        }
 
         let Ok(command) = rmp_serde::from_slice::<InputCommand>(&update.payload) else {
             return;
@@ -423,12 +435,13 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn test_input_replicator_anti_replay() {
-        use crate::components::LatestInput;
+        use crate::components::{LatestInput, NetworkOwner};
         use aetheris_protocol::events::ComponentUpdate;
-        use aetheris_protocol::types::{ComponentKind, InputCommand, NetworkId};
+        use aetheris_protocol::types::{ClientId, ComponentKind, InputCommand, NetworkId};
 
         let mut world = World::new();
-        let entity = world.spawn_empty().id();
+        // Spawning with Ownership — required since vs-01
+        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
         let replicator = InputCommandReplicator;
 
         let cmd1 = InputCommand {
