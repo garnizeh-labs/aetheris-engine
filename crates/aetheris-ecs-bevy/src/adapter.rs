@@ -37,6 +37,10 @@ impl Default for BevyWorldAdapter {
 
 impl BevyWorldAdapter {
     /// Creates a new adapter wrapping the given Bevy world.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `tick_rate` is 0.
     pub fn new(world: World, tick_rate: u64) -> Self {
         assert!(tick_rate > 0, "tick_rate must be > 0");
         let mut adapter = Self {
@@ -48,7 +52,9 @@ impl BevyWorldAdapter {
             last_extraction_tick: None,
             tick_rate,
         };
-        adapter.world.insert_resource(crate::components::ServerTick(0));
+        adapter
+            .world
+            .insert_resource(crate::components::ServerTick(0));
         adapter
     }
 
@@ -171,7 +177,10 @@ impl WorldState for BevyWorldAdapter {
         self.world.increment_change_tick();
 
         // Increment authoritative server tick resource
-        if let Some(mut tick) = self.world.get_resource_mut::<crate::components::ServerTick>() {
+        if let Some(mut tick) = self
+            .world
+            .get_resource_mut::<crate::components::ServerTick>()
+        {
             tick.0 = tick.0.saturating_add(1);
         }
     }
