@@ -199,7 +199,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let wt = WebTransportBridge::new(wt_addr).await;
         transport.add_transport(Box::new(wt));
 
-        let mut world = BevyWorldAdapter::new(bevy_ecs::world::World::new());
+        let tick_rate = 60;
+        let mut world = BevyWorldAdapter::new(bevy_ecs::world::World::new(), tick_rate);
         let mut registry = aetheris_ecs_bevy::registry::ComponentRegistry::new();
         aetheris_ecs_bevy::registry::register_void_rush_components(&mut registry);
 
@@ -209,7 +210,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let encoder = SerdeEncoder::new();
 
-        let mut scheduler = TickScheduler::new(60, auth_service.clone());
+        let mut scheduler = TickScheduler::new(tick_rate, auth_service.clone());
         let shutdown_clone = shutdown_tx.subscribe();
 
         let scheduler_handle = tokio::spawn(async move {

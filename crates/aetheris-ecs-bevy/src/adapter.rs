@@ -10,8 +10,9 @@ use aetheris_protocol::types::{ClientId, ComponentKind, LocalId, NetworkId, Ship
 
 use crate::Networked;
 use crate::components::{
-    PhysicsBody, ShipClassComponent, ShipStatsComponent, TransformComponent, Velocity,
+    LatestInput, PhysicsBody, ShipClassComponent, ShipStatsComponent, TransformComponent, Velocity,
 };
+use crate::physics_consts::{DEFAULT_DRAG, MASS_PER_ORE};
 use crate::registry::BoxedReplicator;
 use aetheris_protocol::types::Transform as ProtocolTransform;
 
@@ -23,17 +24,18 @@ pub struct BevyWorldAdapter {
     replicators: BTreeMap<ComponentKind, BoxedReplicator>,
     allocator: aetheris_protocol::types::NetworkIdAllocator,
     last_extraction_tick: Option<Tick>,
+    tick_rate: u64,
 }
 
 impl Default for BevyWorldAdapter {
     fn default() -> Self {
-        Self::new(World::new())
+        Self::new(World::new(), 60)
     }
 }
 
 impl BevyWorldAdapter {
     /// Creates a new adapter wrapping the given Bevy world.
-    pub fn new(world: World) -> Self {
+    pub fn new(world: World, tick_rate: u64) -> Self {
         Self {
             world,
             bimap: BiHashMap::new(),
@@ -41,6 +43,7 @@ impl BevyWorldAdapter {
             replicators: BTreeMap::new(),
             allocator: aetheris_protocol::types::NetworkIdAllocator::new(1),
             last_extraction_tick: None,
+            tick_rate,
         }
     }
 
@@ -165,12 +168,61 @@ impl WorldState for BevyWorldAdapter {
 
     #[tracing::instrument(skip(self))]
     fn simulate(&mut self) {
-        // Enforce Z-clamp (M1015/M1020)
+        #[allow(clippy::cast_precision_loss)]
+        let dt = 1.0 / self.tick_rate as f32;
+
+        // Stage 1: Auth Newtonian Physics + Input Application (M1015/M1020/M1038)
+        let mut query = self.world.query::<(
+            &mut Velocity,
+            &mut TransformComponent,
+            &PhysicsBody,
+            Option<&LatestInput>,
+            Option<&crate::components::CargoHold>,
+        )>();
+
+        for (mut velocity, mut transform, physics, input, cargo) in query.iter_mut(&mut self.world)
+        {
+            // 1.1 Calculate total mass with cargo penalty (M1038)
+            let ore_count = cargo.map_or(0.0, |c| f32::from(c.ore_count));
+            let total_mass = physics.base_mass + (ore_count * physics.mass_per_ore);
+
+            // 1.2 Calculate acceleration from input
+            let (accel_x, accel_y) = if let Some(latest) = input {
+                (
+                    latest.command.move_x * (physics.thrust_force / total_mass),
+                    latest.command.move_y * (physics.thrust_force / total_mass),
+                )
+            } else {
+                (0.0, 0.0)
+            };
+
+            // 1.3 Update velocity (Euler integration)
+            velocity.dx += accel_x * dt;
+            velocity.dy += accel_y * dt;
+
+            // 1.4 Apply Drag (M1015 - prevents infinite sliding)
+            velocity.dx *= 1.0 - (physics.drag * dt);
+            velocity.dy *= 1.0 - (physics.drag * dt);
+
+            // 1.5 Clamp to Max Velocity
+            let speed = (velocity.dx * velocity.dx + velocity.dy * velocity.dy).sqrt();
+            if speed > physics.max_velocity && speed > f32::EPSILON {
+                let ratio = physics.max_velocity / speed;
+                velocity.dx *= ratio;
+                velocity.dy *= ratio;
+            }
+
+            // 1.6 Update transform
+            transform.0.x += velocity.dx * dt;
+            transform.0.y += velocity.dy * dt;
+        }
+
+        // Stage 2: Enforce Z-clamp (M1015/M1020)
         // Void Rush is a 2D game on a 3D engine; z must stay 0.0.
-        let mut query = self
+        let mut z_query = self
             .world
             .query::<(&mut TransformComponent, &mut Velocity)>();
-        for (mut transform, mut velocity) in query.iter_mut(&mut self.world) {
+        for (mut transform, mut velocity) in z_query.iter_mut(&mut self.world) {
             if transform.0.z.abs() > f32::EPSILON {
                 transform.0.z = 0.0;
             }
@@ -305,6 +357,8 @@ impl WorldState for BevyWorldAdapter {
                         thrust_force: 500.0,
                         max_velocity: 120.0,
                         turn_rate: 270.0,
+                        drag: DEFAULT_DRAG,
+                        mass_per_ore: MASS_PER_ORE,
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
@@ -334,6 +388,8 @@ impl WorldState for BevyWorldAdapter {
                         thrust_force: 200.0,
                         max_velocity: 40.0,
                         turn_rate: 60.0,
+                        drag: DEFAULT_DRAG,
+                        mass_per_ore: MASS_PER_ORE,
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
@@ -363,6 +419,8 @@ impl WorldState for BevyWorldAdapter {
                         thrust_force: 350.0,
                         max_velocity: 70.0,
                         turn_rate: 150.0,
+                        drag: DEFAULT_DRAG,
+                        mass_per_ore: MASS_PER_ORE,
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
@@ -397,7 +455,7 @@ impl WorldState for BevyWorldAdapter {
 mod tests {
     use super::*;
     use crate::registry::DefaultReplicator;
-    use bevy_ecs::prelude::Component;
+    use bevy_ecs::component::Component;
     use std::sync::Arc;
 
     #[derive(Component, Clone, Debug, PartialEq)]
@@ -444,7 +502,8 @@ mod tests {
     }
 
     #[test]
-    fn test_replication_roundtrip() {
+    #[allow(clippy::float_cmp)]
+    fn test_input_replicator_anti_replay() {
         let mut adapter = BevyWorldAdapter::default();
         let kind = ComponentKind(200);
         adapter.register_replicator(Arc::new(DefaultReplicator::<MockPos>::new(kind)));

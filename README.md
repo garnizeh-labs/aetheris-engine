@@ -9,13 +9,12 @@ In modern multiplayer architecture, the server is more than a message relay — 
 This repository implements the authoritative tick scheduler that drives the Aetheris simulation. It bridges the gap between the wire protocol and the deep simulation state, ensuring every entity, component, and interaction is validated and replicated with cryptographic integrity.
 
 > [!IMPORTANT]
-> 🚀 **Current State:** **Milestone M1020** — Ship Classes & ECS Synchronization (Implemented).
+> 🚀 **Current State:** **VS-01 (One Ship, One Sector) complete!** Protocol v0.2.8 & Authoritative Physics.
 > 
 > Features introduced in this phase:
-> - **Protocol Hardening:** Strict `InputCommand` validation and non-zero `ShipStats` initialization safety.
-> - **2D Newtonian Flight:** Enforced Z-clamping (`z = 0.0`, `dz = 0.0`) within the Bevy simulation adapter.
-> - **Server-Side Sovereignty:** `NetworkOwner` and `Visibility` logic moved strictly to the server to prevent snitching/cheating.
-
+> - **60Hz Authoritative Physics:** Newtonian Euler integration with drag and mass-penalty architecture.
+> - **Anti-Replay Input Validation:** InputCommandReplicator gate enforcing tick monotonicity and network ownership.
+> - **Protocol v0.2.8 Integration:** Full synchronization with the latest spatial primitives and core traits.
 [![Build Status](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/garnizeh-labs/aetheris-engine/actions)
 [![Crates.io](https://img.shields.io/crates/v/aetheris-engine.svg)](https://crates.io/crates/aetheris-engine)
 [![Docs.rs](https://docs.rs/aetheris-engine/badge.svg)](https://docs.rs/aetheris-engine)

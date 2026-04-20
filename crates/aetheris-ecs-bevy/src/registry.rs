@@ -150,6 +150,53 @@ impl<T: ReplicatableComponent> ComponentReplicator for DefaultReplicator<T> {
     }
 }
 
+/// Specialized replicator for client input commands.
+/// Implements anti-replay logic by validating client ticks.
+pub struct InputCommandReplicator;
+
+impl ComponentReplicator for InputCommandReplicator {
+    fn kind(&self) -> ComponentKind {
+        aetheris_protocol::types::INPUT_COMMAND_KIND
+    }
+
+    fn extract(
+        &self,
+        _world: &World,
+        _entity: Entity,
+        _network_id: NetworkId,
+        _tick: u64,
+        _last_tick: Option<Tick>,
+    ) -> Option<ReplicationEvent> {
+        // Inbound-only (Client -> Server), never extracted back to clients.
+        None
+    }
+
+    fn apply(&self, world: &mut World, entity: Entity, update: &ComponentUpdate) {
+        use crate::components::LatestInput;
+        use aetheris_protocol::types::InputCommand;
+
+        let Ok(command) = rmp_serde::from_slice::<InputCommand>(&update.payload) else {
+            return;
+        };
+
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            if let Some(mut latest) = entity_mut.get_mut::<LatestInput>() {
+                // Anti-replay: Only apply if the new tick is strictly greater
+                if command.tick > latest.last_client_tick {
+                    latest.command = command;
+                    latest.last_client_tick = command.tick;
+                }
+            } else {
+                // First input for this entity
+                entity_mut.insert(LatestInput {
+                    command,
+                    last_client_tick: command.tick,
+                });
+            }
+        }
+    }
+}
+
 /// Trait alias for components that can be replicated.
 /// Requires `Component`, `Clone`, and conversion to/from `Vec<u8>`.
 pub trait ReplicatableComponent: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>> {}
@@ -297,6 +344,15 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<DockedState>::new(ComponentKind(14))),
     });
+
+    // 128: InputCommand (Core Extension - Inbound Only)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::INPUT_COMMAND_KIND,
+        name: "InputCommand",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Transient,
+        replicator: Arc::new(InputCommandReplicator),
+    });
 }
 
 #[cfg(test)]
@@ -308,14 +364,14 @@ mod tests {
         let mut registry = ComponentRegistry::new();
         register_void_rush_components(&mut registry);
 
-        // Verify we have exactly 14 replicated components (M1020)
+        // Verify we have 15 components (14 replicated + 1 transient input)
         assert_eq!(
             registry.components.len(),
-            14,
-            "Registry MUST contain exactly 14 replicated components"
+            15,
+            "Registry MUST contain 15 components (14 replicated + 1 input)"
         );
 
-        // Verify canonical IDs 1-14 are present
+        // Verify canonical IDs 1-14 are present (M1020)
         for i in 1..=14 {
             let kind = ComponentKind(i);
             assert!(
@@ -323,6 +379,14 @@ mod tests {
                 "Missing canonical ComponentKind({i})"
             );
         }
+
+        // Verify InputCommand (128) is present
+        assert!(
+            registry
+                .components
+                .contains_key(&aetheris_protocol::types::INPUT_COMMAND_KIND),
+            "Missing InputCommand(128)"
+        );
     }
 
     #[test]
@@ -338,5 +402,87 @@ mod tests {
                 desc.name
             );
         }
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_input_replicator_anti_replay() {
+        use crate::components::LatestInput;
+        use aetheris_protocol::events::ComponentUpdate;
+        use aetheris_protocol::types::{ComponentKind, InputCommand, NetworkId};
+
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        let replicator = InputCommandReplicator;
+
+        let cmd1 = InputCommand {
+            tick: 100,
+            move_x: 1.0,
+            move_y: 0.0,
+            actions: 0,
+        };
+        let payload1 = rmp_serde::to_vec(&cmd1).unwrap();
+
+        // 1. Initial apply
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: payload1,
+                tick: 0,
+            },
+        );
+
+        let latest = world.get::<LatestInput>(entity).unwrap();
+        assert_eq!(latest.last_client_tick, 100);
+        assert_eq!(latest.command.move_x, 1.0);
+
+        // 2. Replay apply (same tick) -> Should be ignored
+        let cmd2 = InputCommand {
+            tick: 100,
+            move_x: 0.0,
+            move_y: 1.0, // Different value
+            actions: 0,
+        };
+        let payload2 = rmp_serde::to_vec(&cmd2).unwrap();
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: payload2,
+                tick: 0,
+            },
+        );
+
+        let latest = world.get::<LatestInput>(entity).unwrap();
+        assert_eq!(latest.last_client_tick, 100);
+        assert_eq!(latest.command.move_x, 1.0, "Replayed input must be ignored");
+
+        // 3. Newer tick -> Should be applied
+        let cmd3 = InputCommand {
+            tick: 101,
+            move_x: 0.5,
+            move_y: 0.5,
+            actions: 0,
+        };
+        let payload3 = rmp_serde::to_vec(&cmd3).unwrap();
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: payload3,
+                tick: 0,
+            },
+        );
+
+        let latest = world.get::<LatestInput>(entity).unwrap();
+        assert_eq!(latest.last_client_tick, 101);
+        assert_eq!(latest.command.move_x, 0.5);
     }
 }

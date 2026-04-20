@@ -140,6 +140,8 @@ pub struct PhysicsBody {
     pub thrust_force: f32,
     pub max_velocity: f32,
     pub turn_rate: f32,
+    pub drag: f32,
+    pub mass_per_ore: f32,
 }
 
 #[derive(Component, Debug, Clone)]
@@ -210,6 +212,12 @@ pub struct RespawnTimer {
 #[derive(Component, Debug, Clone)]
 pub struct InputHistory {
     pub ring: std::collections::VecDeque<InputCommand>,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct LatestInput {
+    pub command: InputCommand,
+    pub last_client_tick: u64,
 }
 
 #[derive(Component, Debug, Clone)]

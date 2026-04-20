@@ -9,6 +9,7 @@ pub use registry::{ComponentReplicator, DefaultReplicator, ReplicatableComponent
 
 mod adapter;
 pub mod components;
+pub mod physics_consts;
 pub mod registry;
 
 /// Marker component for entities that are replicated over the network.
