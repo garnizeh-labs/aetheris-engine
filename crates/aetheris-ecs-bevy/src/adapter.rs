@@ -171,8 +171,12 @@ impl WorldState for BevyWorldAdapter {
             .world
             .query::<(&mut TransformComponent, &mut Velocity)>();
         for (mut transform, mut velocity) in query.iter_mut(&mut self.world) {
-            transform.0.z = 0.0;
-            velocity.dz = 0.0;
+            if (transform.0.z - 0.0).abs() > f32::EPSILON {
+                transform.0.z = 0.0;
+            }
+            if (velocity.dz - 0.0).abs() > f32::EPSILON {
+                velocity.dz = 0.0;
+            }
         }
 
         // In Phase 1, we advance the world tick to support Bevy's change detection.

@@ -21,7 +21,7 @@ pub enum ComponentScope {
 pub enum ComponentClassification {
     /// Persisted across sessions (e.g., Inventory).
     Persistent,
-    /// Reset on κάθε tick (not applicable here, but common in ECS).
+    /// Reset on every tick (not applicable here, but common in ECS).
     Transient,
     /// Simulation state.
     Simulated,
@@ -155,9 +155,9 @@ impl<T: ReplicatableComponent> ComponentReplicator for DefaultReplicator<T> {
 pub trait ReplicatableComponent: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>> {}
 impl<T: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>>> ReplicatableComponent for T {}
 
-/// Registers all 30 canonical Void Rush components into the provided registry.
+/// Registers all 31 canonical Void Rush components into the provided registry.
 ///
-/// This implements the authoritative component list for M1020.
+/// This implements the authoritative component list for M1020 (14 replicated + 17 server-only).
 #[allow(clippy::wildcard_imports, clippy::too_many_lines)]
 pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
     use crate::components::*;
