@@ -5,27 +5,26 @@
   [![CI](https://img.shields.io/github/actions/workflow/status/garnizeh-labs/aetheris-engine/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/garnizeh-labs/aetheris-engine/actions)
   [![Rust Version](https://img.shields.io/badge/rust-1.95.0%2B-blue?style=flat-square&logo=rust)](https://www.rust-lang.org/)
   [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg?style=flat-square)](https://conventionalcommits.org)
+  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/garnizeh-labs/aetheris-engine/pulls)
 </div>
 
 ---
 
-## ⚙️ Authoritative Determinism
+## ⚙️ The Deterministic Heart — Authoritative Simulation
 
 In modern multiplayer architecture, the server is more than a message relay — it is the absolute source of truth. **Aetheris Engine** provides the sub-millisecond precision, high-frequency tick scheduling, and deterministic ECS bridging required to synchronize complex worlds across unreliable networks.
 
 > [!IMPORTANT]
-> 🚀 **Current State:** **VS-01 (One Ship, One Sector) complete!** Protocol v0.2.8 & Authoritative Physics.
-> 
-> Features introduced in this phase:
-> - **60Hz Authoritative Physics:** Newtonian Euler integration with drag and mass-penalty architecture.
-> - **Anti-Replay Input Validation:** InputCommandReplicator gate enforcing tick monotonicity and network ownership.
-> - **Protocol v0.2.8 Integration:** Full synchronization with the latest spatial primitives and core traits.
-[![Build Status](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/garnizeh-labs/aetheris-engine/actions)
-[![Crates.io](https://img.shields.io/crates/v/aetheris-engine.svg)](https://crates.io/crates/aetheris-engine)
-[![Docs.rs](https://docs.rs/aetheris-engine/badge.svg)](https://docs.rs/aetheris-engine)
-[![Rust Version](https://img.shields.io/badge/rust-1.95.0%2B-blue.svg?logo=rust)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT%2FApache--2.0-green.svg)](LICENSE-MIT)
-[![DeepMind: Advanced Agentic Coding](https://img.shields.io/badge/DeepMind-Agentic--Coding-purple.svg)](https://google.com)
+> 🚀 **Current State:** **VS-01 (One Ship, One Sector) complete!** Protocol v0.2.8 & Authoritative Physics. Finalized the Five-Stage Tick Pipeline and implemented spatial AoI filtering for 100+ concurrent players.
+
+### 📦 Workspace Components
+
+| Crate | Link | Documentation |
+| :--- | :--- | :--- |
+| **`aetheris-server`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-server?style=flat-square)](https://crates.io/crates/aetheris-server) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-server?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-server) |
+| **`aetheris-ecs-bevy`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-ecs-bevy?style=flat-square)](https://crates.io/crates/aetheris-ecs-bevy) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-ecs-bevy?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-ecs-bevy) |
+| **`aetheris-transport-renet`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-transport-renet?style=flat-square)](https://crates.io/crates/aetheris-transport-renet) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-transport-renet?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-transport-renet) |
+| **`aetheris-transport-webtransport`** | [![Crates.io](https://img.shields.io/crates/v/aetheris-transport-webtransport?style=flat-square)](https://crates.io/crates/aetheris-transport-webtransport) | [![Docs.rs](https://img.shields.io/docsrs/aetheris-transport-webtransport?style=flat-square&logo=docs.rs&label=docs)](https://docs.rs/aetheris-transport-webtransport) |
 
 ## Workspace Components
 
@@ -60,9 +59,9 @@ just --list
 
 ## The Three Pillars
 
-1.  **Authoritative Scheduling**: A high-precision 60Hz loop governing the six stages of a tick: **Poll**, **Authorize**, **Simulate**, **Extract**, **Encode**, and **Send**.
-2.  **Simulation Abstraction**: A trait-driven bridge allowing the engine to drive any ECS (Bevy or custom) without modifying networking logic.
-3.  **Hardened Integrity**: Every input is validated, every state is replicated, and every vital is protected against division-by-zero or out-of-bounds corruption.
+1. **Authoritative Scheduling**: A high-precision 60Hz loop governing the six stages of a tick: **Poll**, **Authorize**, **Simulate**, **Extract**, **Encode**, and **Send**.
+2. **Simulation Abstraction**: A trait-driven bridge allowing the engine to drive any ECS (Bevy or custom) without modifying networking logic.
+3. **Hardened Integrity**: Every input is validated, every state is replicated, and every vital is protected against division-by-zero or out-of-bounds corruption.
 
 ---
 
