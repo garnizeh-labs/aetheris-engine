@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn test_replication_roundtrip() {
         let mut adapter = BevyWorldAdapter::default();
-        let kind = ComponentKind(2);
+        let kind = ComponentKind(200);
         adapter.register_replicator(Arc::new(DefaultReplicator::<MockPos>::new(kind)));
 
         // Spawn entity
