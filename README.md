@@ -17,8 +17,12 @@ This repository implements the authoritative tick scheduler that drives the Aeth
 > - **Server-Side Sovereignty:** `NetworkOwner` and `Visibility` logic moved strictly to the server to prevent snitching/cheating.
 
 [![Build Status](https://github.com/garnizeh-labs/aetheris-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/garnizeh-labs/aetheris-engine/actions)
-[![Crates.io](https://img.shields.io/crates/v/aetheris-engine.svg)](https://crates.io/crates/aetheris-engine)
-[![Docs.rs](https://docs.rs/aetheris-engine/badge.svg)](https://docs.rs/aetheris-engine)
+[![aetheris-server](https://img.shields.io/crates/v/aetheris-server?label=aetheris-server)](https://crates.io/crates/aetheris-server) [![docs](https://img.shields.io/docsrs/aetheris-server?label=docs)](https://docs.rs/aetheris-server)
+[![aetheris-ecs-bevy](https://img.shields.io/crates/v/aetheris-ecs-bevy?label=aetheris-ecs-bevy)](https://crates.io/crates/aetheris-ecs-bevy) [![docs](https://img.shields.io/docsrs/aetheris-ecs-bevy?label=docs)](https://docs.rs/aetheris-ecs-bevy)
+[![aetheris-ecs-custom](https://img.shields.io/crates/v/aetheris-ecs-custom?label=aetheris-ecs-custom)](https://crates.io/crates/aetheris-ecs-custom) [![docs](https://img.shields.io/docsrs/aetheris-ecs-custom?label=docs)](https://docs.rs/aetheris-ecs-custom)
+[![aetheris-transport-quinn](https://img.shields.io/crates/v/aetheris-transport-quinn?label=aetheris-transport-quinn)](https://crates.io/crates/aetheris-transport-quinn) [![docs](https://img.shields.io/docsrs/aetheris-transport-quinn?label=docs)](https://docs.rs/aetheris-transport-quinn)
+[![aetheris-transport-renet](https://img.shields.io/crates/v/aetheris-transport-renet?label=aetheris-transport-renet)](https://crates.io/crates/aetheris-transport-renet) [![docs](https://img.shields.io/docsrs/aetheris-transport-renet?label=docs)](https://docs.rs/aetheris-transport-renet)
+[![aetheris-transport-webtransport](https://img.shields.io/crates/v/aetheris-transport-webtransport?label=aetheris-transport-webtransport)](https://crates.io/crates/aetheris-transport-webtransport) [![docs](https://img.shields.io/docsrs/aetheris-transport-webtransport?label=docs)](https://docs.rs/aetheris-transport-webtransport)
 [![Rust Version](https://img.shields.io/badge/rust-1.95.0%2B-blue.svg?logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-MIT%2FApache--2.0-green.svg)](LICENSE-MIT)
 [![DeepMind: Advanced Agentic Coding](https://img.shields.io/badge/DeepMind-Agentic--Coding-purple.svg)](https://google.com)
