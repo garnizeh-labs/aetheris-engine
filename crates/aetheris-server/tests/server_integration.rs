@@ -140,7 +140,7 @@ async fn test_grpc_auth_flow() -> Result<(), Box<dyn std::error::Error>> {
 async fn test_server_loop_1000_ticks() {
     let transport = Box::new(MockTransport::new());
     let world = Box::new(MockWorldState::new());
-    let mut adapter = BevyWorldAdapter::new(World::new());
+    let mut adapter = BevyWorldAdapter::new(World::new(), 60);
     adapter.register_replicator(std::sync::Arc::new(aetheris_ecs_bevy::DefaultReplicator::<
         aetheris_ecs_bevy::TransformComponent,
     >::new(

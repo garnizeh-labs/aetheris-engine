@@ -1,8 +1,8 @@
 ---
-Version: 0.2.0-draft
+Version: 0.2.1
 Status: Phase 1 — MVP / Phase 2 — Specified
 Phase: P1 | P2 | P3
-Last Updated: 2026-04-15
+Last Updated: 2026-04-20
 Authors: Team (Antigravity)
 Spec References: [LC-0200]
 Tier: 2
@@ -565,7 +565,12 @@ impl Encoder for SerdeEncoder {
 - String fields must be valid UTF-8 and within maximum length limits.
 - Float fields must be finite (not `NaN`, not `Inf`).
 
-### 10.2 Sequence Number Validation
+### 10.2 Sequence Number & Tick Validation
+
+Aetheris enforces twofold monotonicity in Stage 2 (Authorize) to prevent historical state injection:
+
+1. **Protocol Sequence**: Built-in transport-level sequence validation rejects replayed UDP packets.
+2. **Tick Monotonicity**: The `InputCommandReplicator` maintains a `last_client_tick` for each target entity via the `LatestInput` component. Any inbound `InputCommand` with a `client_tick <= latest.last_client_tick` for that specific entity is dropped. This prevents "look-back" attacks where an attacker captures a valid past input to re-run physics from an earlier state.
 
 Each client message carries a monotonically increasing sequence number. The server maintains a per-client expected sequence and rejects out-of-order or replayed messages:
 

@@ -150,6 +150,92 @@ impl<T: ReplicatableComponent> ComponentReplicator for DefaultReplicator<T> {
     }
 }
 
+/// Specialized replicator for client input commands.
+/// Implements anti-replay logic by validating client ticks.
+const MAX_FORWARD_TICK_JUMP: u64 = 600;
+
+pub struct InputCommandReplicator;
+
+impl ComponentReplicator for InputCommandReplicator {
+    fn kind(&self) -> ComponentKind {
+        aetheris_protocol::types::INPUT_COMMAND_KIND
+    }
+
+    fn extract(
+        &self,
+        _world: &World,
+        _entity: Entity,
+        _network_id: NetworkId,
+        _tick: u64,
+        _last_tick: Option<Tick>,
+    ) -> Option<ReplicationEvent> {
+        // Inbound-only (Client -> Server), never extracted back to clients.
+        None
+    }
+
+    fn apply(&self, world: &mut World, entity: Entity, update: &ComponentUpdate) {
+        use crate::components::LatestInput;
+        use crate::components::NetworkOwner;
+        use crate::components::ServerTick;
+        use aetheris_protocol::types::InputCommand;
+
+        // 1. Verify Ownership (M1013 §4.2)
+        // Entities missing Ownership(ClientId) MUST reject all client updates.
+        // This provides defense-in-depth even if the caller (Adapter) skipped the check.
+        if world.get::<NetworkOwner>(entity).is_none() {
+            tracing::warn!(
+                network_id = update.network_id.0,
+                "Rejected InputCommand: Entity missing Ownership"
+            );
+            return;
+        }
+
+        let mut command = match rmp_serde::from_slice::<InputCommand>(&update.payload) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                tracing::warn!(
+                    network_id = update.network_id.0,
+                    error = ?e,
+                    "Rejected InputCommand: Deserialization failed"
+                );
+                return;
+            }
+        };
+
+        // Fetch server tick before borrowing entity mutably to avoid borrow checker conflicts
+        let server_tick = world.get_resource::<ServerTick>().map_or(0, |t| t.0);
+
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            if let Some(mut latest) = entity_mut.get_mut::<LatestInput>() {
+                // Anti-replay: Only apply if the new tick is strictly greater and within a reasonable window
+                if command.tick > latest.last_client_tick
+                    && command.tick
+                        <= latest
+                            .last_client_tick
+                            .saturating_add(MAX_FORWARD_TICK_JUMP)
+                {
+                    latest.command = command;
+                    latest.last_client_tick = command.tick;
+                }
+            } else {
+                // First input for this entity: validate against authoritative server tick
+                // Allow some leeway for initial connection RTT, but cap the forward jump
+                let capped_tick = command
+                    .tick
+                    .min(server_tick.saturating_add(MAX_FORWARD_TICK_JUMP));
+
+                // Synchronize command tick with capped_tick for consistency
+                command.tick = capped_tick;
+
+                entity_mut.insert(LatestInput {
+                    command,
+                    last_client_tick: capped_tick,
+                });
+            }
+        }
+    }
+}
+
 /// Trait alias for components that can be replicated.
 /// Requires `Component`, `Clone`, and conversion to/from `Vec<u8>`.
 pub trait ReplicatableComponent: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>> {}
@@ -297,6 +383,15 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<DockedState>::new(ComponentKind(14))),
     });
+
+    // 128: InputCommand (Core Extension - Inbound Only)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::INPUT_COMMAND_KIND,
+        name: "InputCommand",
+        scope: ComponentScope::Core,
+        classification: ComponentClassification::Transient,
+        replicator: Arc::new(InputCommandReplicator),
+    });
 }
 
 #[cfg(test)]
@@ -308,14 +403,14 @@ mod tests {
         let mut registry = ComponentRegistry::new();
         register_void_rush_components(&mut registry);
 
-        // Verify we have exactly 14 replicated components (M1020)
+        // Verify we have 15 components (14 replicated + 1 transient input)
         assert_eq!(
             registry.components.len(),
-            14,
-            "Registry MUST contain exactly 14 replicated components"
+            15,
+            "Registry MUST contain 15 components (14 replicated + 1 input)"
         );
 
-        // Verify canonical IDs 1-14 are present
+        // Verify canonical IDs 1-14 are present (M1020)
         for i in 1..=14 {
             let kind = ComponentKind(i);
             assert!(
@@ -323,6 +418,14 @@ mod tests {
                 "Missing canonical ComponentKind({i})"
             );
         }
+
+        // Verify InputCommand (128) is present
+        assert!(
+            registry
+                .components
+                .contains_key(&aetheris_protocol::types::INPUT_COMMAND_KIND),
+            "Missing InputCommand(128)"
+        );
     }
 
     #[test]
@@ -338,5 +441,203 @@ mod tests {
                 desc.name
             );
         }
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_input_replicator_anti_replay() {
+        use crate::components::{LatestInput, NetworkOwner};
+        use aetheris_protocol::events::ComponentUpdate;
+        use aetheris_protocol::types::{ClientId, ComponentKind, InputCommand, NetworkId};
+
+        let mut world = World::new();
+        // Spawning with Ownership — required since vs-01
+        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        let replicator = InputCommandReplicator;
+
+        let cmd1 = InputCommand {
+            tick: 100,
+            move_x: 1.0,
+            move_y: 0.0,
+            actions: 0,
+        };
+        let payload1 = rmp_serde::to_vec(&cmd1).unwrap();
+
+        // 1. Initial apply
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: payload1,
+                tick: 0,
+            },
+        );
+
+        let latest = world.get::<LatestInput>(entity).unwrap();
+        assert_eq!(latest.last_client_tick, 100);
+        assert_eq!(latest.command.move_x, 1.0);
+
+        // 2. Replay apply (same tick) -> Should be ignored
+        let cmd2 = InputCommand {
+            tick: 100,
+            move_x: 0.0,
+            move_y: 1.0, // Different value
+            actions: 0,
+        };
+        let payload2 = rmp_serde::to_vec(&cmd2).unwrap();
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: payload2,
+                tick: 0,
+            },
+        );
+
+        let latest = world.get::<LatestInput>(entity).unwrap();
+        assert_eq!(latest.last_client_tick, 100);
+        assert_eq!(latest.command.move_x, 1.0, "Replayed input must be ignored");
+
+        // 3. Newer tick -> Should be applied
+        let cmd3 = InputCommand {
+            tick: 101,
+            move_x: 0.5,
+            move_y: 0.5,
+            actions: 0,
+        };
+        let payload3 = rmp_serde::to_vec(&cmd3).unwrap();
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: payload3,
+                tick: 0,
+            },
+        );
+
+        let latest = world.get::<LatestInput>(entity).unwrap();
+        assert_eq!(latest.last_client_tick, 101);
+        assert_eq!(latest.command.move_x, 0.5);
+    }
+
+    #[test]
+    fn test_input_replicator_rejected_tick_jump() {
+        use crate::components::{LatestInput, NetworkOwner};
+        use aetheris_protocol::events::ComponentUpdate;
+        use aetheris_protocol::types::{ClientId, ComponentKind, InputCommand, NetworkId};
+
+        let mut world = World::new();
+        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        let replicator = InputCommandReplicator;
+
+        // 1. Establish baseline
+        let cmd1 = InputCommand {
+            tick: 100,
+            move_x: 0.0,
+            move_y: 0.0,
+            actions: 0,
+        };
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: rmp_serde::to_vec(&cmd1).unwrap(),
+                tick: 0,
+            },
+        );
+
+        assert_eq!(
+            world.get::<LatestInput>(entity).unwrap().last_client_tick,
+            100
+        );
+
+        // 2. Attempt huge jump
+        let cmd2 = InputCommand {
+            tick: 100 + MAX_FORWARD_TICK_JUMP + 1,
+            move_x: 0.0,
+            move_y: 0.0,
+            actions: 0,
+        };
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: rmp_serde::to_vec(&cmd2).unwrap(),
+                tick: 0,
+            },
+        );
+
+        // Should be unchanged
+        assert_eq!(
+            world.get::<LatestInput>(entity).unwrap().last_client_tick,
+            100
+        );
+    }
+
+    #[test]
+    fn test_input_replicator_no_ownership() {
+        use crate::components::LatestInput;
+        use aetheris_protocol::events::ComponentUpdate;
+        use aetheris_protocol::types::{ComponentKind, InputCommand, NetworkId};
+
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        let replicator = InputCommandReplicator;
+
+        let cmd = InputCommand {
+            tick: 100,
+            move_x: 0.0,
+            move_y: 0.0,
+            actions: 0,
+        };
+
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: rmp_serde::to_vec(&cmd).unwrap(),
+                tick: 0,
+            },
+        );
+
+        // Should not have created LatestInput
+        assert!(world.get::<LatestInput>(entity).is_none());
+    }
+
+    #[test]
+    fn test_input_replicator_malformed_payload() {
+        use crate::components::{LatestInput, NetworkOwner};
+        use aetheris_protocol::events::ComponentUpdate;
+        use aetheris_protocol::types::{ClientId, ComponentKind, NetworkId};
+
+        let mut world = World::new();
+        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        let replicator = InputCommandReplicator;
+
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: vec![0xFF, 0x00, 0x42], // Invalid MessagePack
+                tick: 0,
+            },
+        );
+
+        // Should not have created LatestInput
+        assert!(world.get::<LatestInput>(entity).is_none());
     }
 }
