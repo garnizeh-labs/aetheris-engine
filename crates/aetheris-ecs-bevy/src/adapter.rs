@@ -6,9 +6,12 @@ use std::collections::BTreeMap;
 use aetheris_protocol::error::WorldError;
 use aetheris_protocol::events::{ComponentUpdate, ReplicationEvent};
 use aetheris_protocol::traits::WorldState;
-use aetheris_protocol::types::{ClientId, ComponentKind, LocalId, NetworkId};
+use aetheris_protocol::types::{ClientId, ComponentKind, LocalId, NetworkId, ShipClass, ShipStats};
 
 use crate::Networked;
+use crate::components::{
+    PhysicsBody, ShipClassComponent, ShipStatsComponent, TransformComponent, Velocity,
+};
 use crate::registry::BoxedReplicator;
 use aetheris_protocol::types::Transform as ProtocolTransform;
 
@@ -119,10 +122,12 @@ impl WorldState for BevyWorldAdapter {
                 owner_id == *client_id
             } else {
                 // Fallback to slow ECS lookup for entities not in cache
-                self.world.get::<crate::Ownership>(entity).is_some_and(|o| {
-                    self.owners.insert(update.network_id, o.0);
-                    o.0 == *client_id
-                })
+                self.world
+                    .get::<crate::components::NetworkOwner>(entity)
+                    .is_some_and(|o| {
+                        self.owners.insert(update.network_id, o.0);
+                        o.0 == *client_id
+                    })
             };
 
             if !is_authorized {
@@ -160,11 +165,17 @@ impl WorldState for BevyWorldAdapter {
 
     #[tracing::instrument(skip(self))]
     fn simulate(&mut self) {
+        // Enforce Z-clamp (M1015/M1020)
+        // Void Rush is a 2D game on a 3D engine; z must stay 0.0.
+        let mut query = self
+            .world
+            .query::<(&mut TransformComponent, &mut Velocity)>();
+        for (mut transform, mut velocity) in query.iter_mut(&mut self.world) {
+            transform.0.z = 0.0;
+            velocity.dz = 0.0;
+        }
+
         // In Phase 1, we advance the world tick to support Bevy's change detection.
-        // `increment_change_tick` was moved to `advance_tick` (called before Stage 2) so
-        // that entities spawned by inputs have a higher tick than `last_extraction_tick`.
-        // `clear_trackers` still calls `increment_change_tick` internally, providing a
-        // second increment that keeps the delta window correct.
         // Full system execution via Schedules will be implemented in M300.
         self.world.clear_trackers();
     }
@@ -184,9 +195,20 @@ impl WorldState for BevyWorldAdapter {
     fn spawn_networked_for(&mut self, client_id: ClientId) -> NetworkId {
         let id = self.spawn_networked();
         let entity = *self.bimap.get_by_left(&id).expect("Spawned but missing id");
-        self.world
-            .entity_mut(entity)
-            .insert(crate::Ownership(client_id));
+        self.world.entity_mut(entity).insert((
+            crate::components::NetworkOwner(client_id),
+            TransformComponent(ProtocolTransform {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0, // Enforced Z-clamp
+                rotation: 0.0,
+            }),
+            Velocity {
+                dx: 0.0,
+                dy: 0.0,
+                dz: 0.0, // Enforced Z-clamp
+            },
+        ));
         self.owners.insert(id, client_id);
         id
     }
@@ -233,24 +255,121 @@ impl WorldState for BevyWorldAdapter {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn spawn_kind(&mut self, kind: u16, x: f32, y: f32, rot: f32) -> NetworkId {
         let network_id = self
             .allocator
             .allocate()
             .expect("NetworkId allocation failed (exhausted)");
-        let entity = self
-            .world
-            .spawn((
-                crate::Networked(network_id),
-                Transform {
-                    x,
-                    y,
-                    z: 0.0,
-                    rotation: rot,
-                    entity_type: kind,
-                },
-            ))
-            .id();
+
+        let mut entity_mut = self.world.spawn((
+            crate::Networked(network_id),
+            TransformComponent(ProtocolTransform {
+                x,
+                y,
+                z: 0.0, // Enforced Z-clamp (M1015/M1020)
+                rotation: rot,
+            }),
+            crate::components::Velocity {
+                dx: 0.0,
+                dy: 0.0,
+                dz: 0.0, // Enforced Z-clamp (M1015/M1020)
+            },
+        ));
+
+        // Map entity kind to components (M1020 §3.2)
+        match kind {
+            1 | 2 => {
+                // Interceptor (GDD §4.2 / M1020 §3.1)
+                entity_mut.insert((
+                    ShipClassComponent(ShipClass::Interceptor),
+                    ShipStatsComponent(ShipStats {
+                        hp: 200,
+                        max_hp: 200,
+                        shield: 100,
+                        max_shield: 100,
+                        energy: 100,
+                        max_energy: 100,
+                        shield_regen_per_s: 5,
+                        energy_regen_per_s: 10,
+                    }),
+                    PhysicsBody {
+                        base_mass: 50.0,
+                        thrust_force: 500.0,
+                        max_velocity: 120.0,
+                        turn_rate: 270.0,
+                    },
+                    crate::components::CargoHold {
+                        ore_count: 0,
+                        capacity: 50,
+                    },
+                    crate::components::PlayerName {
+                        name: "Player".to_string(),
+                    },
+                ));
+            }
+            3 => {
+                // Dreadnought (GDD §4.2 / M1020 §3.1)
+                entity_mut.insert((
+                    ShipClassComponent(ShipClass::Dreadnought),
+                    ShipStatsComponent(ShipStats {
+                        hp: 1500,
+                        max_hp: 1500,
+                        shield: 500,
+                        max_shield: 500,
+                        energy: 300,
+                        max_energy: 300,
+                        shield_regen_per_s: 15,
+                        energy_regen_per_s: 20,
+                    }),
+                    PhysicsBody {
+                        base_mass: 300.0,
+                        thrust_force: 200.0,
+                        max_velocity: 40.0,
+                        turn_rate: 60.0,
+                    },
+                    crate::components::CargoHold {
+                        ore_count: 0,
+                        capacity: 100,
+                    },
+                    crate::components::PlayerName {
+                        name: "Dreadnought".to_string(),
+                    },
+                ));
+            }
+            4 => {
+                // Hauler (GDD §4.2 / M1020 §3.1)
+                entity_mut.insert((
+                    ShipClassComponent(ShipClass::Hauler),
+                    ShipStatsComponent(ShipStats {
+                        hp: 600,
+                        max_hp: 600,
+                        shield: 200,
+                        max_shield: 200,
+                        energy: 150,
+                        max_energy: 150,
+                        shield_regen_per_s: 8,
+                        energy_regen_per_s: 12,
+                    }),
+                    PhysicsBody {
+                        base_mass: 150.0,
+                        thrust_force: 350.0,
+                        max_velocity: 70.0,
+                        turn_rate: 150.0,
+                    },
+                    crate::components::CargoHold {
+                        ore_count: 0,
+                        capacity: 500,
+                    },
+                    crate::components::PlayerName {
+                        name: "Hauler".to_string(),
+                    },
+                ));
+            }
+            _ => {}
+        }
+
+        let entity = entity_mut.id();
         self.bimap.insert(network_id, entity);
         network_id
     }
@@ -265,46 +384,7 @@ impl WorldState for BevyWorldAdapter {
     }
 }
 
-/// Bevy-compatible Transform component that replicates via the protocol Transform.
-#[derive(bevy_ecs::prelude::Component, Clone, Debug, PartialEq)]
-pub struct Transform {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-    pub rotation: f32,
-    pub entity_type: u16,
-}
-
-impl TryFrom<Transform> for Vec<u8> {
-    type Error = rmp_serde::encode::Error;
-
-    fn try_from(t: Transform) -> Result<Self, Self::Error> {
-        let p = ProtocolTransform {
-            x: t.x,
-            y: t.y,
-            z: t.z,
-            rotation: t.rotation,
-            entity_type: t.entity_type,
-        };
-        rmp_serde::to_vec(&p)
-    }
-}
-
-impl TryFrom<Vec<u8>> for Transform {
-    // Default replicator expects a Result, error type doesn't strictly matter as long as it's not Ok
-    type Error = String;
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        rmp_serde::from_slice::<ProtocolTransform>(&value)
-            .map(|p| Transform {
-                x: p.x,
-                y: p.y,
-                z: p.z,
-                rotation: p.rotation,
-                entity_type: p.entity_type,
-            })
-            .map_err(|e| e.to_string())
-    }
-}
+// Local Transform removed. Use components::TransformComponent instead.
 
 #[cfg(test)]
 mod tests {

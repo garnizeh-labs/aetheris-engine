@@ -363,6 +363,10 @@ impl GameTransport for TransportRef {
 
 struct EncoderRef(SharedState);
 impl Encoder for EncoderRef {
+    fn codec_id(&self) -> u32 {
+        1
+    }
+
     fn encode(
         &self,
         ev: &ReplicationEvent,

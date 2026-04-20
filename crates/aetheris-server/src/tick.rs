@@ -260,25 +260,40 @@ impl TickScheduler {
                     jti
                 } else {
                     // Client not authenticated yet; only accept Auth message
-                    if let Ok(NetworkEvent::Auth { session_token }) =
-                        encoder.decode_event(&raw_data)
-                    {
-                        tracing::info!(?client_id, "Auth message received");
-                        if let Some(jti) =
-                            auth_service.validate_and_get_jti(&session_token, Some(tick))
-                        {
-                            tracing::info!(?client_id, "Client authenticated successfully");
-                            let network_id = world.spawn_networked_for(client_id);
-                            authenticated_clients.insert(client_id, (jti, network_id));
-                            continue;
+                    match encoder.decode_event(&raw_data) {
+                        Ok(NetworkEvent::Auth { session_token }) => {
+                            tracing::info!(?client_id, "Auth message received");
+                            if let Some(jti) =
+                                auth_service.validate_and_get_jti(&session_token, Some(tick))
+                            {
+                                tracing::info!(?client_id, "Client authenticated successfully");
+                                let network_id = world.spawn_networked_for(client_id);
+                                authenticated_clients.insert(client_id, (jti, network_id));
+                                continue;
+                            }
+                            tracing::warn!(
+                                ?client_id,
+                                "Client failed authentication (token rejected)"
+                            );
                         }
-                        tracing::warn!(?client_id, "Client failed authentication");
-                    } else {
-                        tracing::debug!(
-                            ?client_id,
-                            "Discarding message from unauthenticated client"
-                        );
-                        metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
+                        Ok(other) => {
+                            tracing::warn!(
+                                ?client_id,
+                                variant = ?std::mem::discriminant(&other),
+                                bytes = raw_data.len(),
+                                "Unauthenticated client sent non-Auth event — discarding"
+                            );
+                            metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                ?client_id,
+                                error = ?e,
+                                bytes = raw_data.len(),
+                                "Failed to decode message from unauthenticated client"
+                            );
+                            metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
+                        }
                     }
                     continue;
                 };
@@ -299,6 +314,12 @@ impl TickScheduler {
                             tracing::debug!(?client_id, "Client re-authenticating (ignored)");
                         }
                         NetworkEvent::StressTest { count, rotate, .. } => {
+                            tracing::info!(
+                                ?client_id,
+                                count,
+                                rotate,
+                                "StressTest event received from authenticated client"
+                            );
                             if can_run_playground_command(jti) {
                                 // M10105 — Safety cap to prevent server-side resource exhaustion.
                                 const MAX_STRESS: u16 = 1000;

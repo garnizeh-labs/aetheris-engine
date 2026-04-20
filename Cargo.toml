@@ -102,7 +102,7 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 
-# [patch.crates-io]
-# aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
-# aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
-# aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }
+[patch.crates-io]
+aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
+aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
+aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }

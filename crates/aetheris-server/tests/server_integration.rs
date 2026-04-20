@@ -142,7 +142,7 @@ async fn test_server_loop_1000_ticks() {
     let world = Box::new(MockWorldState::new());
     let mut adapter = BevyWorldAdapter::new(World::new());
     adapter.register_replicator(std::sync::Arc::new(aetheris_ecs_bevy::DefaultReplicator::<
-        aetheris_ecs_bevy::Transform,
+        aetheris_ecs_bevy::TransformComponent,
     >::new(
         aetheris_protocol::types::ComponentKind(1),
     )));
@@ -252,6 +252,10 @@ impl WorldState for WorldRef {
 
 struct EncoderRef(SharedState);
 impl Encoder for EncoderRef {
+    fn codec_id(&self) -> u32 {
+        1
+    }
+
     fn encode(
         &self,
         ev: &ReplicationEvent,
@@ -637,6 +641,10 @@ async fn test_large_delta_fragmentation() {
         real: Arc<aetheris_encoder_serde::SerdeEncoder>,
     }
     impl Encoder for LargeEncoderRef {
+        fn codec_id(&self) -> u32 {
+            1
+        }
+
         fn encode(
             &self,
             ev: &ReplicationEvent,

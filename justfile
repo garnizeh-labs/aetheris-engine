@@ -73,6 +73,40 @@ docs-check:
 docs-strict:
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 
+# Run the game server (debug build, background)
+
+[group('run')]
+server:
+    AETHERIS_AUTH_BYPASS=1 RUST_LOG=info cargo run -p aetheris-server --features phase1 &
+
+# Run a lightweight server for telemetry only
+
+[group('run')]
+server-telemetry:
+    RUST_LOG=info cargo run -p aetheris-server --no-default-features &
+
+# Run the game server (release build, background)
+
+[group('run')]
+server-release:
+    cargo build -p aetheris-server --release --features phase1
+    cargo run -p aetheris-server --release --features phase1 &
+
+# Run server with full observability
+
+[group('run')]
+server-obs:
+    @mkdir -p logs
+    cargo build -p aetheris-server --release --features phase1
+    LOG_FORMAT=json OTEL_EXPORTER_OTLP_ENDPOINT=<http://localhost:4317> RUST_LOG=info \
+        AETHERIS_AUTH_BYPASS=1 ./target/release/aetheris-server >> logs/server.log 2>&1 &
+
+# Stop all background processes
+
+[group('maintenance')]
+stop:
+    -fuser -k 9000/tcp 4433/udp 5000/udp 50051/tcp >/dev/null 2>&1 || true
+
 # Pinned nightly for udeps / wasm (matches Aetheris workspace)
 
 wasm_nightly := "nightly-2025-07-01"
