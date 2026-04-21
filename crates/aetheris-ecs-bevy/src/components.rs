@@ -104,6 +104,26 @@ pub struct DockedState {
     pub docked_at_tick: u64,
 }
 
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize, Default)]
+pub struct MiningBeam {
+    pub active: bool,
+    pub target: Option<NetworkId>,
+    #[serde(default)]
+    pub last_seen_input_tick: Option<u64>,
+}
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct CargoHold {
+    pub ore_count: u16,
+    pub capacity: u16,
+}
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Asteroid {
+    pub ore_remaining: u16,
+    pub total_capacity: u16,
+}
+
 impl_component_serde!(TransformComponent);
 impl_component_serde!(Velocity);
 impl_component_serde!(ShipStatsComponent);
@@ -118,16 +138,13 @@ impl_component_serde!(Station);
 impl_component_serde!(JumpGate);
 impl_component_serde!(ProjectileMarker);
 impl_component_serde!(DockedState);
+impl_component_serde!(MiningBeam);
+impl_component_serde!(CargoHold);
+impl_component_serde!(Asteroid);
 
 // ──────────────────────────────────────────────
 // Server-Only Components (M1020 §3.4)
 // ──────────────────────────────────────────────
-
-#[derive(Component, Debug, Clone)]
-pub struct CargoHold {
-    pub ore_count: u16,
-    pub capacity: u16,
-}
 
 #[derive(Component, Debug, Clone)]
 pub struct Wallet {
@@ -194,8 +211,11 @@ pub struct MerkleChainState {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct AsteroidRespawn {
-    pub cooldown_ticks: u32,
+    pub delay_ticks: u32,
     pub remaining: u32,
+    pub x: f32,
+    pub y: f32,
+    pub total_capacity: u16,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -223,6 +243,15 @@ pub struct LatestInput {
 /// Resource used to track the authoritative server tick.
 #[derive(bevy_ecs::prelude::Resource, Debug, Clone, Copy, Default)]
 pub struct ServerTick(pub u64);
+
+/// Resource used to queue reliable messages from ECS systems to be sent over the wire.
+#[derive(bevy_ecs::prelude::Resource, Debug, Clone, Default)]
+pub struct ReliableEvents {
+    pub queue: Vec<(
+        Option<aetheris_protocol::types::ClientId>,
+        aetheris_protocol::events::GameEvent,
+    )>,
+}
 
 #[derive(Component, Debug, Clone)]
 pub struct DamageTracker {
