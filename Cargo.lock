@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "aetheris-ecs-bevy"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "aetheris-protocol",
  "bevy_ecs",
@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "aetheris-ecs-custom"
-version = "0.5.0"
+version = "0.5.1"
 
 [[package]]
 name = "aetheris-encoder-bitpack"
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "aetheris-server"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "aetheris-ecs-bevy",
  "aetheris-ecs-custom",
@@ -117,11 +117,11 @@ dependencies = [
 
 [[package]]
 name = "aetheris-transport-quinn"
-version = "0.5.0"
+version = "0.5.1"
 
 [[package]]
 name = "aetheris-transport-renet"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "aetheris-protocol",
  "async-trait",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "aetheris-transport-webtransport"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "aetheris-protocol",
  "async-trait",
