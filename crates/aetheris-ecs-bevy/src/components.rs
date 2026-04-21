@@ -108,6 +108,8 @@ pub struct DockedState {
 pub struct MiningBeam {
     pub active: bool,
     pub target: Option<NetworkId>,
+    #[serde(default)]
+    pub last_seen_input_tick: Option<u64>,
 }
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]

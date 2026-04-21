@@ -269,11 +269,17 @@ impl WorldState for BevyWorldAdapter {
             .world
             .query::<(Entity, &LatestInput, &mut crate::components::MiningBeam)>();
         for (_entity, latest, mut beam) in input_query.iter_mut(&mut self.world) {
-            for action in &latest.command.actions {
-                if let aetheris_protocol::types::PlayerInputKind::ToggleMining { target } = action {
-                    beam.active = !beam.active;
-                    beam.target = Some(*target);
+            // Edge-detect: Only process actions if the client tick has changed.
+            if beam.last_seen_input_tick != Some(latest.command.tick) {
+                for action in &latest.command.actions {
+                    if let aetheris_protocol::types::PlayerInputKind::ToggleMining { target } =
+                        action
+                    {
+                        beam.active = !beam.active;
+                        beam.target = Some(*target);
+                    }
                 }
+                beam.last_seen_input_tick = Some(latest.command.tick);
             }
         }
 

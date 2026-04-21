@@ -138,7 +138,7 @@ fn handle_asteroid_depletion(
                 // Spawn respawn tracker (300 ticks)
                 trackers_to_spawn.push(AsteroidRespawn {
                     delay_ticks: 300,
-                    remaining: 300,
+                    remaining: 301,
                     x: transform.0.x,
                     y: transform.0.y,
                     total_capacity: capacity,
