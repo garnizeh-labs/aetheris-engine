@@ -277,6 +277,7 @@ impl WorldState for BevyWorldAdapter {
                     {
                         beam.active = !beam.active;
                         beam.target = Some(*target);
+                        break;
                     }
                 }
                 beam.last_seen_input_tick = Some(latest.command.tick);
