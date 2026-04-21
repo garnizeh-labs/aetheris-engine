@@ -191,7 +191,17 @@ impl ComponentReplicator for InputCommandReplicator {
         }
 
         let mut command = match rmp_serde::from_slice::<InputCommand>(&update.payload) {
-            Ok(cmd) => cmd,
+            Ok(cmd) => {
+                if let Err(e) = cmd.validate() {
+                    tracing::warn!(
+                        network_id = update.network_id.0,
+                        error = e,
+                        "Rejected InputCommand: Validation failed"
+                    );
+                    return;
+                }
+                cmd
+            }
             Err(e) => {
                 tracing::warn!(
                     network_id = update.network_id.0,

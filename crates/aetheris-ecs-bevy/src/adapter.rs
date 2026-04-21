@@ -121,22 +121,19 @@ impl WorldState for BevyWorldAdapter {
         deltas
     }
 
-    fn extract_reliable_events(&mut self) -> Vec<(Option<ClientId>, Vec<u8>)> {
+    fn extract_reliable_events(
+        &mut self,
+    ) -> Vec<(Option<ClientId>, aetheris_protocol::events::WireEvent)> {
         let mut events = Vec::new();
         if let Some(mut reliable) = self
             .world
             .get_resource_mut::<crate::components::ReliableEvents>()
         {
-            let encoder = aetheris_encoder_serde::SerdeEncoder::new();
-
             for (client_id, game_event) in reliable.queue.drain(..) {
-                let network_event = aetheris_protocol::events::NetworkEvent::GameEvent {
-                    client_id: client_id.unwrap_or(ClientId(0)),
-                    event: game_event,
-                };
-                if let Ok(payload) = encoder.encode_event(&network_event) {
-                    events.push((client_id, payload));
-                }
+                events.push((
+                    client_id,
+                    aetheris_protocol::events::WireEvent::GameEvent(game_event),
+                ));
             }
         }
         events

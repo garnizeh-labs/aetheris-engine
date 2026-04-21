@@ -452,16 +452,24 @@ impl TickScheduler {
         let t5 = Instant::now();
 
         // Stage 5.1: Send Reliable Events
-        for (target, data) in reliable_events {
-            if let Some(id) = target {
-                if let Err(e) = transport.send_reliable(id, &data).await {
-                    error!(error = ?e, client_id = ?id, "Failed to send reliable event");
-                }
+        for (target, wire_event) in reliable_events {
+            // Broadcast reliably to all authenticated clients if target is None
+            let targets: Vec<_> = if let Some(id) = target {
+                vec![id]
             } else {
-                // Broadcast reliably to all authenticated clients
-                for &id in authenticated_clients.keys() {
-                    if let Err(e) = transport.send_reliable(id, &data).await {
-                        error!(error = ?e, client_id = ?id, "Failed to broadcast reliable event");
+                authenticated_clients.keys().copied().collect()
+            };
+
+            for id in targets {
+                let network_event = wire_event.clone().into_network_event(id);
+                match encoder.encode_event(&network_event) {
+                    Ok(data) => {
+                        if let Err(e) = transport.send_reliable(id, &data).await {
+                            error!(error = ?e, client_id = ?id, "Failed to send reliable event");
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = ?e, client_id = ?id, "Failed to encode reliable event");
                     }
                 }
             }

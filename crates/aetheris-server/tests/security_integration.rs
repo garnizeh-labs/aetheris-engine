@@ -105,6 +105,11 @@ async fn test_entity_hijacking_prevention() {
         fn apply_updates(&mut self, updates: &[(ClientId, ComponentUpdate)]) {
             self.adapter.lock().unwrap().apply_updates(updates)
         }
+        fn extract_reliable_events(
+            &mut self,
+        ) -> Vec<(Option<ClientId>, aetheris_protocol::events::WireEvent)> {
+            self.adapter.lock().unwrap().extract_reliable_events()
+        }
         fn simulate(&mut self) {
             self.adapter.lock().unwrap().simulate()
         }
