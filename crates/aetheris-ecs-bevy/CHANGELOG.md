@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Resolve clippy lints in ecs-bevy
 - *(registry)* Sync command tick and add replicator edge cases
+
+### 📚 Documentation
+
+- Standardize readme badges with protocol
+
 ## [0.4.1] - 2026-04-20
 
 ### 🐛 Bug Fixes

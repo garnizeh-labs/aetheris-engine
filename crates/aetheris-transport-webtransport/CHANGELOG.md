@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ## [0.5.0] - 2026-04-20
 
+### 📚 Documentation
+
+- Synchronize workspace crate badges
+- Standardize readme badges with protocol
+
 ### 🚀 Features
 
 - Complete VS-01 engine logic and documentation
