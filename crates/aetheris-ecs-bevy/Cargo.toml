@@ -10,6 +10,7 @@ readme.workspace = true
 
 [dependencies]
 aetheris-protocol = { workspace = true }
+aetheris-encoder-serde = { workspace = true }
 bevy_ecs = { workspace = true }
 bimap = { workspace = true }
 metrics = { workspace = true }

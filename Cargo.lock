@@ -16,6 +16,7 @@ dependencies = [
 name = "aetheris-ecs-bevy"
 version = "0.5.0"
 dependencies = [
+ "aetheris-encoder-serde",
  "aetheris-protocol",
  "bevy_ecs",
  "bimap",
@@ -31,15 +32,11 @@ version = "0.5.0"
 
 [[package]]
 name = "aetheris-encoder-bitpack"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e6e2af4e6d2759f1ad80fa3fc66cc70d227a330e18c19a61d22925e9f76a171"
+version = "0.2.10"
 
 [[package]]
 name = "aetheris-encoder-serde"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c73c40504583764efa42e84bde7d461c80cfd8094a3bb8e715ab5eb41ebe90f"
+version = "0.2.10"
 dependencies = [
  "aetheris-protocol",
  "metrics",
@@ -50,9 +47,7 @@ dependencies = [
 
 [[package]]
 name = "aetheris-protocol"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caf131190f6237d2dbbb607c4571b3118800295312278a1c6d87bd760ef38593"
+version = "0.2.10"
 dependencies = [
  "async-trait",
  "prost",
@@ -2237,7 +2232,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http",

@@ -201,18 +201,6 @@ impl TickScheduler {
                         tracing::info!(client_id = ?id, "Client disconnected");
                         (id, Vec::new(), false)
                     }
-                    NetworkEvent::Ping { client_id, tick } => {
-                        if authenticated_clients.contains_key(&client_id) {
-                            pong_responses.get_or_insert_with(Vec::new).push((
-                                client_id,
-                                tick,
-                                Instant::now(),
-                            ));
-                            metrics::counter!("aetheris_protocol_pings_received_total")
-                                .increment(1);
-                        }
-                        (client_id, Vec::new(), false)
-                    }
                     NetworkEvent::SessionClosed(id) => {
                         metrics::counter!("aetheris_transport_events_total", "type" => "session_closed")
                         .increment(1);
@@ -231,14 +219,24 @@ impl TickScheduler {
                         }
                         (id, Vec::new(), false)
                     }
-                    NetworkEvent::Auth { .. }
-                    | NetworkEvent::Pong { .. }
-                    | NetworkEvent::StressTest { .. }
-                    | NetworkEvent::Spawn { .. }
-                    | NetworkEvent::ClearWorld { .. } => {
-                        // All other events are handled later after decoding ReliableMessage
-                        // or are not expected directly from the transport layer.
-                        continue;
+                    NetworkEvent::Ping { client_id, tick } => {
+                        if authenticated_clients.contains_key(&client_id) {
+                            pong_responses.get_or_insert_with(Vec::new).push((
+                                client_id,
+                                tick,
+                                Instant::now(),
+                            ));
+                            metrics::counter!("aetheris_protocol_pings_received_total")
+                                .increment(1);
+                        }
+                        (client_id, Vec::new(), false)
+                    }
+                    NetworkEvent::ClearWorld { client_id, .. }
+                    | NetworkEvent::GameEvent { client_id, .. }
+                    | NetworkEvent::StressTest { client_id, .. }
+                    | NetworkEvent::Spawn { client_id, .. } => (client_id, Vec::new(), false),
+                    NetworkEvent::Pong { .. } | NetworkEvent::Auth { .. } => {
+                        (aetheris_protocol::types::ClientId(0), Vec::new(), false)
                     }
                 };
 
@@ -443,15 +441,32 @@ impl TickScheduler {
 
         // Stage 4: Extract
         let t4 = Instant::now();
-        let deltas = {
+        let (deltas, reliable_events) = {
             let _span = debug_span!("stage4_extract").entered();
-            world.extract_deltas()
+            (world.extract_deltas(), world.extract_reliable_events())
         };
         metrics::histogram!("aetheris_stage_duration_seconds", "stage" => "extract")
             .record(t4.elapsed().as_secs_f64());
 
         // Stage 5: Encode & Send
         let t5 = Instant::now();
+
+        // Stage 5.1: Send Reliable Events
+        for (target, data) in reliable_events {
+            if let Some(id) = target {
+                if let Err(e) = transport.send_reliable(id, &data).await {
+                    error!(error = ?e, client_id = ?id, "Failed to send reliable event");
+                }
+            } else {
+                // Broadcast reliably to all authenticated clients
+                for &id in authenticated_clients.keys() {
+                    if let Err(e) = transport.send_reliable(id, &data).await {
+                        error!(error = ?e, client_id = ?id, "Failed to broadcast reliable event");
+                    }
+                }
+            }
+        }
+
         if !deltas.is_empty() {
             let mut broadcast_count: u64 = 0;
 

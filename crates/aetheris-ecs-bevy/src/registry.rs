@@ -214,8 +214,8 @@ impl ComponentReplicator for InputCommandReplicator {
                             .last_client_tick
                             .saturating_add(MAX_FORWARD_TICK_JUMP)
                 {
-                    latest.command = command;
                     latest.last_client_tick = command.tick;
+                    latest.command = command;
                 }
             } else {
                 // First input for this entity: validate against authoritative server tick
@@ -384,6 +384,39 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         replicator: Arc::new(DefaultReplicator::<DockedState>::new(ComponentKind(14))),
     });
 
+    // 1024: MiningBeam (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::MINING_BEAM_KIND,
+        name: "MiningBeam",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<MiningBeam>::new(
+            aetheris_protocol::types::MINING_BEAM_KIND,
+        )),
+    });
+
+    // 1025: CargoHold (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::CARGO_HOLD_KIND,
+        name: "CargoHold",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<CargoHold>::new(
+            aetheris_protocol::types::CARGO_HOLD_KIND,
+        )),
+    });
+
+    // 1026: Asteroid (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::ASTEROID_KIND,
+        name: "Asteroid",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<Asteroid>::new(
+            aetheris_protocol::types::ASTEROID_KIND,
+        )),
+    });
+
     // 128: InputCommand (Core Extension - Inbound Only)
     registry.register(ComponentDescriptor {
         kind: aetheris_protocol::types::INPUT_COMMAND_KIND,
@@ -403,11 +436,11 @@ mod tests {
         let mut registry = ComponentRegistry::new();
         register_void_rush_components(&mut registry);
 
-        // Verify we have 15 components (14 replicated + 1 transient input)
+        // Verify we have 18 components (14 replicated core + 3 mining + 1 transient input)
         assert_eq!(
             registry.components.len(),
-            15,
-            "Registry MUST contain 15 components (14 replicated + 1 input)"
+            18,
+            "Registry MUST contain 18 components (17 replicated + 1 input)"
         );
 
         // Verify canonical IDs 1-14 are present (M1020)
@@ -418,6 +451,23 @@ mod tests {
                 "Missing canonical ComponentKind({i})"
             );
         }
+
+        // Verify Mining IDs are present
+        assert!(
+            registry
+                .components
+                .contains_key(&aetheris_protocol::types::MINING_BEAM_KIND)
+        );
+        assert!(
+            registry
+                .components
+                .contains_key(&aetheris_protocol::types::CARGO_HOLD_KIND)
+        );
+        assert!(
+            registry
+                .components
+                .contains_key(&aetheris_protocol::types::ASTEROID_KIND)
+        );
 
         // Verify InputCommand (128) is present
         assert!(
@@ -448,18 +498,17 @@ mod tests {
     fn test_input_replicator_anti_replay() {
         use crate::components::{LatestInput, NetworkOwner};
         use aetheris_protocol::events::ComponentUpdate;
-        use aetheris_protocol::types::{ClientId, ComponentKind, InputCommand, NetworkId};
+        use aetheris_protocol::types::{
+            ClientId, ComponentKind, InputCommand, NetworkId, PlayerInputKind,
+        };
 
         let mut world = World::new();
-        // Spawning with Ownership — required since vs-01
         let entity = world.spawn(NetworkOwner(ClientId(1))).id();
         let replicator = InputCommandReplicator;
 
         let cmd1 = InputCommand {
             tick: 100,
-            move_x: 1.0,
-            move_y: 0.0,
-            actions: 0,
+            actions: vec![PlayerInputKind::Move { x: 1.0, y: 0.0 }],
         };
         let payload1 = rmp_serde::to_vec(&cmd1).unwrap();
 
@@ -477,14 +526,16 @@ mod tests {
 
         let latest = world.get::<LatestInput>(entity).unwrap();
         assert_eq!(latest.last_client_tick, 100);
-        assert_eq!(latest.command.move_x, 1.0);
+        if let PlayerInputKind::Move { x, .. } = latest.command.actions[0] {
+            assert_eq!(x, 1.0);
+        } else {
+            panic!("Expected Move action");
+        }
 
         // 2. Replay apply (same tick) -> Should be ignored
         let cmd2 = InputCommand {
             tick: 100,
-            move_x: 0.0,
-            move_y: 1.0, // Different value
-            actions: 0,
+            actions: vec![PlayerInputKind::Move { x: 0.0, y: 1.0 }],
         };
         let payload2 = rmp_serde::to_vec(&cmd2).unwrap();
         replicator.apply(
@@ -500,14 +551,16 @@ mod tests {
 
         let latest = world.get::<LatestInput>(entity).unwrap();
         assert_eq!(latest.last_client_tick, 100);
-        assert_eq!(latest.command.move_x, 1.0, "Replayed input must be ignored");
+        if let PlayerInputKind::Move { x, .. } = latest.command.actions[0] {
+            assert_eq!(x, 1.0, "Replayed input must be ignored");
+        } else {
+            panic!("Expected Move action");
+        }
 
         // 3. Newer tick -> Should be applied
         let cmd3 = InputCommand {
             tick: 101,
-            move_x: 0.5,
-            move_y: 0.5,
-            actions: 0,
+            actions: vec![PlayerInputKind::Move { x: 0.5, y: 0.5 }],
         };
         let payload3 = rmp_serde::to_vec(&cmd3).unwrap();
         replicator.apply(
@@ -523,7 +576,11 @@ mod tests {
 
         let latest = world.get::<LatestInput>(entity).unwrap();
         assert_eq!(latest.last_client_tick, 101);
-        assert_eq!(latest.command.move_x, 0.5);
+        if let PlayerInputKind::Move { x, .. } = latest.command.actions[0] {
+            assert_eq!(x, 0.5);
+        } else {
+            panic!("Expected Move action");
+        }
     }
 
     #[test]
@@ -539,9 +596,7 @@ mod tests {
         // 1. Establish baseline
         let cmd1 = InputCommand {
             tick: 100,
-            move_x: 0.0,
-            move_y: 0.0,
-            actions: 0,
+            actions: vec![],
         };
         replicator.apply(
             &mut world,
@@ -562,9 +617,7 @@ mod tests {
         // 2. Attempt huge jump
         let cmd2 = InputCommand {
             tick: 100 + MAX_FORWARD_TICK_JUMP + 1,
-            move_x: 0.0,
-            move_y: 0.0,
-            actions: 0,
+            actions: vec![],
         };
         replicator.apply(
             &mut world,
@@ -596,9 +649,7 @@ mod tests {
 
         let cmd = InputCommand {
             tick: 100,
-            move_x: 0.0,
-            move_y: 0.0,
-            actions: 0,
+            actions: vec![],
         };
 
         replicator.apply(

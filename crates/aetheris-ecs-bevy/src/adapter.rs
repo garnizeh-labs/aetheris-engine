@@ -56,6 +56,9 @@ impl BevyWorldAdapter {
             .world
             .insert_resource(crate::components::ServerTick(0));
         adapter
+            .world
+            .insert_resource(crate::components::ReliableEvents::default());
+        adapter
     }
 
     /// Registers a component replicator for a specific `ComponentKind`.
@@ -116,6 +119,27 @@ impl WorldState for BevyWorldAdapter {
         metrics::gauge!("aetheris_ecs_entities_networked").set(self.bimap.len() as f64);
 
         deltas
+    }
+
+    fn extract_reliable_events(&mut self) -> Vec<(Option<ClientId>, Vec<u8>)> {
+        let mut events = Vec::new();
+        if let Some(mut reliable) = self
+            .world
+            .get_resource_mut::<crate::components::ReliableEvents>()
+        {
+            let encoder = aetheris_encoder_serde::SerdeEncoder::new();
+
+            for (client_id, game_event) in reliable.queue.drain(..) {
+                let network_event = aetheris_protocol::events::NetworkEvent::GameEvent {
+                    client_id: client_id.unwrap_or(ClientId(0)),
+                    event: game_event,
+                };
+                if let Ok(payload) = encoder.encode_event(&network_event) {
+                    events.push((client_id, payload));
+                }
+            }
+        }
+        events
     }
 
     fn apply_updates(&mut self, updates: &[(ClientId, ComponentUpdate)]) {
@@ -205,25 +229,32 @@ impl WorldState for BevyWorldAdapter {
             let ore_count = cargo.map_or(0.0, |c| f32::from(c.ore_count));
             let total_mass = physics.base_mass + (ore_count * physics.mass_per_ore);
 
-            // 1.2 Calculate acceleration from input
-            let (accel_x, accel_y) = if let Some(latest) = input {
-                (
-                    latest.command.move_x * (physics.thrust_force / total_mass),
-                    latest.command.move_y * (physics.thrust_force / total_mass),
-                )
-            } else {
-                (0.0, 0.0)
-            };
+            // 1.2 Process Inputs
+            let mut move_x = 0.0;
+            let mut move_y = 0.0;
 
-            // 1.3 Update velocity (Euler integration)
+            if let Some(latest) = input {
+                for action in &latest.command.actions {
+                    if let aetheris_protocol::types::PlayerInputKind::Move { x, y } = action {
+                        move_x = *x;
+                        move_y = *y;
+                    }
+                }
+            }
+
+            // 1.3 Calculate acceleration
+            let accel_x = move_x * (physics.thrust_force / total_mass);
+            let accel_y = move_y * (physics.thrust_force / total_mass);
+
+            // 1.4 Update velocity (Euler integration)
             velocity.dx += accel_x * dt;
             velocity.dy += accel_y * dt;
 
-            // 1.4 Apply Drag (M1015 - prevents infinite sliding)
+            // 1.5 Apply Drag (M1015 - prevents infinite sliding)
             velocity.dx *= 1.0 - (physics.drag * dt);
             velocity.dy *= 1.0 - (physics.drag * dt);
 
-            // 1.5 Clamp to Max Velocity
+            // 1.6 Clamp to Max Velocity
             let speed = (velocity.dx * velocity.dx + velocity.dy * velocity.dy).sqrt();
             if speed > physics.max_velocity && speed > f32::EPSILON {
                 let ratio = physics.max_velocity / speed;
@@ -231,12 +262,45 @@ impl WorldState for BevyWorldAdapter {
                 velocity.dy *= ratio;
             }
 
-            // 1.6 Update transform
+            // 1.7 Update transform
             transform.0.x += velocity.dx * dt;
             transform.0.y += velocity.dy * dt;
         }
 
-        // Stage 2: Enforce Z-clamp (M1015/M1020)
+        // Stage 1.8: Process Targeted Actions (Mining)
+        let mut input_query = self
+            .world
+            .query::<(Entity, &LatestInput, &mut crate::components::MiningBeam)>();
+        for (_entity, latest, mut beam) in input_query.iter_mut(&mut self.world) {
+            for action in &latest.command.actions {
+                if let aetheris_protocol::types::PlayerInputKind::ToggleMining { target } = action {
+                    beam.active = !beam.active;
+                    beam.target = Some(*target);
+                }
+            }
+        }
+
+        // Stage 2: Gameplay Systems (M1038)
+        let depleted = crate::mining::process_mining(&mut self.world, &self.bimap);
+        for entity in depleted {
+            if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                let _ = self.despawn_networked(network_id);
+            }
+        }
+
+        let to_respawn = crate::mining::process_respawn(&mut self.world);
+        for (x, y, capacity) in to_respawn {
+            let nid = self.spawn_kind(6, x, y, 0.0); // Kind 6 = Asteroid
+            if let Some(entity) = self.bimap.get_by_left(&nid)
+                && let Some(mut asteroid) =
+                    self.world.get_mut::<crate::components::Asteroid>(*entity)
+            {
+                asteroid.total_capacity = capacity;
+                asteroid.ore_remaining = capacity;
+            }
+        }
+
+        // Stage 3: Enforce Z-clamp (M1015/M1020)
         // Void Rush is a 2D game on a 3D engine; z must stay 0.0.
         let mut z_query = self
             .world
@@ -383,6 +447,7 @@ impl WorldState for BevyWorldAdapter {
                         ore_count: 0,
                         capacity: 50,
                     },
+                    crate::components::MiningBeam::default(),
                     crate::components::PlayerName {
                         name: "Player".to_string(),
                     },
@@ -414,6 +479,7 @@ impl WorldState for BevyWorldAdapter {
                         ore_count: 0,
                         capacity: 100,
                     },
+                    crate::components::MiningBeam::default(),
                     crate::components::PlayerName {
                         name: "Dreadnought".to_string(),
                     },
@@ -445,8 +511,22 @@ impl WorldState for BevyWorldAdapter {
                         ore_count: 0,
                         capacity: 500,
                     },
+                    crate::components::MiningBeam::default(),
                     crate::components::PlayerName {
                         name: "Hauler".to_string(),
+                    },
+                ));
+            }
+            6 => {
+                // Mining Asteroid (Kind 6 from stress_test entity_types)
+                entity_mut.insert((
+                    crate::components::Asteroid {
+                        ore_remaining: 1000,
+                        total_capacity: 1000,
+                    },
+                    crate::components::AsteroidHP {
+                        hp: 500,
+                        max_hp: 500,
                     },
                 ));
             }
