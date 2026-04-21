@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Synchronize workspace crate badges
 - Standardize readme badges with protocol
+
+### 🚀 Features
+
+- Complete VS-01 engine logic and documentation
+- Harden engine security and align specs with 6-stage pipeline
 ## [0.4.1] - 2026-04-20
 ## [0.4.0] - 2026-04-20
 
