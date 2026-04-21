@@ -16,7 +16,6 @@ dependencies = [
 name = "aetheris-ecs-bevy"
 version = "0.5.0"
 dependencies = [
- "aetheris-encoder-serde",
  "aetheris-protocol",
  "bevy_ecs",
  "bimap",
