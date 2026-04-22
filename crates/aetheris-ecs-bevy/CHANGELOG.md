@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- *(ecs)* Fix silent replication failure: moved `world.clear_trackers()` from `simulate()` into new `post_extract()` hook — physics mutations were invisible to `extract_deltas()`, causing server to broadcast zero world-state updates despite processing inputs correctly. All entity positions were permanently frozen at their spawn coordinates on the client.
+
+### 🚀 Features
+
+- *(ecs)* Add `WorldState::post_extract()` default hook; `BevyWorldAdapter` implements it to call `world.clear_trackers()` at the correct pipeline stage (after Stage 4 extraction, before next tick).
+
 ## [0.6.0] - 2026-04-21
 
 ### 🚀 Features

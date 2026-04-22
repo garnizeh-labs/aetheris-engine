@@ -240,7 +240,7 @@ fn process_events_grpc(
                 rtt_ms = ?event.rtt_ms,
                 "wasm: {}", message
             ),
-            TelemetryLevel::Info | TelemetryLevel::LevelUnspecified => tracing::info!(
+            TelemetryLevel::Info | TelemetryLevel::LevelUnspecified => tracing::trace!(
                 session_id = %session_id,
                 trace_id = %trace_id,
                 span_name = %span_name,
@@ -387,7 +387,7 @@ pub async fn json_telemetry_handler(
         .map(|e| sanitize(&e.trace_id, 64))
         .unwrap_or_default();
 
-    let _span = tracing::info_span!(
+    let _span = tracing::trace_span!(
         "wasm_telemetry",
         session_id = %session_id,
         trace_id = %first_trace_id,
@@ -444,7 +444,7 @@ pub async fn json_telemetry_handler(
                 rtt_ms = ?event.rtt_ms,
                 "wasm: {}", message
             ),
-            _ => tracing::info!(
+            _ => tracing::trace!(
                 session_id = %session_id,
                 trace_id = %trace_id,
                 span_name = %span_name,

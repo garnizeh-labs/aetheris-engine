@@ -1,6 +1,7 @@
 use aetheris_protocol::types::{
-    AIState, ClientId, InputCommand, NetworkId, OreType, ProjectileType, RespawnLocation, SectorId,
-    ShipClass, ShipStats, Transform, WeaponId,
+    AIState, ClientId, InputCommand, NetworkId, OreType, ProjectileType, RespawnLocation,
+    RoomBounds, RoomDefinition, RoomMembership, SectorId, ShipClass, ShipStats, Transform,
+    WeaponId,
 };
 use bevy_ecs::prelude::Component;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,7 @@ macro_rules! impl_component_serde {
 // ──────────────────────────────────────────────
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct TransformComponent(pub Transform);
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize, Default)]
@@ -37,6 +39,7 @@ pub struct Velocity {
 }
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize, Default)]
+#[serde(transparent)]
 pub struct ShipStatsComponent(pub ShipStats);
 
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
@@ -50,6 +53,7 @@ pub struct Loadout {
 }
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
 pub struct ShipClassComponent(pub ShipClass);
 
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
@@ -81,6 +85,10 @@ pub struct LootDrop {
 }
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MapSeedComponent(pub u64);
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Station {
     pub position: [f32; 2],
     pub safe_zone_radius: f32,
@@ -108,7 +116,6 @@ pub struct DockedState {
 pub struct MiningBeam {
     pub active: bool,
     pub target: Option<NetworkId>,
-    #[serde(default)]
     pub last_seen_input_tick: Option<u64>,
 }
 
@@ -141,6 +148,21 @@ impl_component_serde!(DockedState);
 impl_component_serde!(MiningBeam);
 impl_component_serde!(CargoHold);
 impl_component_serde!(Asteroid);
+
+#[derive(Component, Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RoomDefinitionComponent(pub RoomDefinition);
+impl_component_serde!(RoomDefinitionComponent);
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RoomBoundsComponent(pub RoomBounds);
+impl_component_serde!(RoomBoundsComponent);
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RoomMembershipComponent(pub RoomMembership);
+impl_component_serde!(RoomMembershipComponent);
 
 // ──────────────────────────────────────────────
 // Server-Only Components (M1020 §3.4)
@@ -253,6 +275,13 @@ pub struct ReliableEvents {
     )>,
 }
 
+/// Resource used to optimize Stage 4 entity extraction by grouping entities by Room.
+#[derive(bevy_ecs::prelude::Resource, Debug, Clone, Default)]
+pub struct RoomIndex {
+    pub memberships:
+        std::collections::HashMap<NetworkId, std::collections::HashSet<bevy_ecs::prelude::Entity>>,
+}
+
 #[derive(Component, Debug, Clone)]
 pub struct DamageTracker {
     pub last_damager: Option<NetworkId>, // Using NetworkId for consistency
@@ -263,3 +292,12 @@ pub struct DamageTracker {
 /// Mapped from the definitive decision: Move `NetworkOwner` to Server-Only.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct NetworkOwner(pub ClientId);
+
+/// Marker: this entity is the authoritative session ship for a client.
+///
+/// Only set on the entity spawned via `StartSession` / `spawn_session_ship`.
+/// Playground entities spawned via the `Spawn` event never receive this
+/// marker, which allows the input pipeline to gate `InputCommand` processing
+/// exclusively to the session ship.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct SessionShip;

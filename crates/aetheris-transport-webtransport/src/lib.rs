@@ -397,8 +397,18 @@ async fn generate_self_signed_identity() -> (Identity, String) {
     // CRITICAL: Chrome's serverCertificateHashes requires validity <= 14 days.
     // rcgen::generate_simple_self_signed defaults to 100 years — so we must
     // use CertificateParams and set not_after explicitly.
-    let mut params = CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()])
+    let mut params = CertificateParams::new(vec!["localhost".to_string()])
         .expect("Failed to create cert params");
+    params
+        .subject_alt_names
+        .push(rcgen::SanType::IpAddress(std::net::IpAddr::V4(
+            std::net::Ipv4Addr::new(127, 0, 0, 1),
+        )));
+    params
+        .subject_alt_names
+        .push(rcgen::SanType::IpAddress(std::net::IpAddr::V6(
+            std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1),
+        )));
     params.not_before = time::OffsetDateTime::now_utc();
     params.not_after = time::OffsetDateTime::now_utc()
         .checked_add(time::Duration::days(13))

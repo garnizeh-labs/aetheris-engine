@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### 🚀 Features
+
+- *(server)* Implement `StartSession` flow: spawns session ship on-demand and grants Possession.
+- *(server)* Implement `SystemManifest` (on-demand pull): extensible metadata with permission-aware filtering (JTI="admin").
+- *(engine)* Upgrade to Protocol v0.2.11.
+
+### 🐛 Bug Fixes
+
+- *(server)* `TickScheduler::tick_step` now calls `world.post_extract()` immediately after Stage 4 extraction — part of the fix for silent replication failure caused by premature `clear_trackers()` invocation in `simulate()`.
+
 ## [0.6.0] - 2026-04-21
 
 ### 🚀 Features
