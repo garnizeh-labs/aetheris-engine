@@ -280,6 +280,7 @@ pub struct ReliableEvents {
 pub struct RoomIndex {
     pub memberships:
         std::collections::HashMap<NetworkId, std::collections::HashSet<bevy_ecs::prelude::Entity>>,
+    pub client_rooms: std::collections::HashMap<ClientId, NetworkId>,
 }
 
 #[derive(Component, Debug, Clone)]

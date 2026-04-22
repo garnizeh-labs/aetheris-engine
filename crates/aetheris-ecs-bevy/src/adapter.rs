@@ -467,12 +467,26 @@ impl WorldState for BevyWorldAdapter {
     fn despawn_networked(&mut self, network_id: NetworkId) -> Result<(), WorldError> {
         if let Some(entity) = self.bimap.remove_by_left(&network_id).map(|(_, e)| e) {
             self.owners.remove(&network_id);
+            // VS-06 — Clean up RoomIndex
+            let is_session_ship = self
+                .world
+                .get::<crate::components::SessionShip>(entity)
+                .is_some();
+            let owner_id = self
+                .world
+                .get::<crate::components::NetworkOwner>(entity)
+                .map(|o| o.0);
+
             if let Some(mut index) = self
                 .world
                 .get_resource_mut::<crate::components::RoomIndex>()
             {
                 for memberships in index.memberships.values_mut() {
                     memberships.remove(&entity);
+                }
+                // If it was a session ship, remove the client's room assignment
+                if is_session_ship && let Some(cid) = owner_id {
+                    index.client_rooms.remove(&cid);
                 }
             }
             if let Ok(entity_mut) = self.world.get_entity_mut(entity) {
@@ -528,7 +542,7 @@ impl WorldState for BevyWorldAdapter {
                 .world
                 .query::<(bevy_ecs::prelude::Entity, &RoomDefinitionComponent)>();
             for (e, def) in query.iter(&self.world) {
-                if def.0.name == "Playground_Master" {
+                if def.0.name.as_str() == "Playground_Master" {
                     if let Some(&nid) = self.bimap.get_by_right(&e) {
                         master_nid = nid;
                         break;
@@ -726,13 +740,24 @@ impl WorldState for BevyWorldAdapter {
             self.world
                 .entity_mut(entity)
                 .insert(crate::components::SessionShip);
+
+            // VS-06 — Register client room assignment for fast lookup
+            let room_id = self
+                .get_entity_room(nid)
+                .expect("Session ship missing room");
+            if let Some(mut index) = self
+                .world
+                .get_resource_mut::<crate::components::RoomIndex>()
+            {
+                index.client_rooms.insert(client_id, room_id);
+            }
         }
         tracing::info!(
             network_id = nid.0,
             kind,
             client_id = client_id.0,
             session_ship = true,
-            "[spawn_session_ship] session ship spawned (SessionShip marker attached)"
+            "[spawn_session_ship] session ship spawned (SessionShip marker attached + RoomIndex updated)"
         );
         nid
     }
@@ -742,7 +767,8 @@ impl WorldState for BevyWorldAdapter {
         if let Some(&entity) = self.bimap.get_by_left(&room_nid) {
             self.world.entity_mut(entity).insert((
                 RoomDefinitionComponent(aetheris_protocol::types::RoomDefinition {
-                    name: "Playground_Master".to_string(),
+                    name: aetheris_protocol::types::RoomName::new("Playground_Master")
+                        .expect("static room name fits within MAX_ROOM_STRING_BYTES"),
                     capacity: 0, // unlimited
                     access: aetheris_protocol::types::RoomAccessPolicy::Open,
                     is_template: false,
@@ -792,6 +818,18 @@ impl WorldState for BevyWorldAdapter {
 
         self.allocator.reset();
 
+        // VS-06 — Explicitly clear RoomIndex to prevent stale memberships/client mappings
+        if let Some(mut index) = self
+            .world
+            .get_resource_mut::<crate::components::RoomIndex>()
+        {
+            index.memberships.clear();
+            index.client_rooms.clear();
+        }
+
+        // Force a full state extraction for all entities in the next tick
+        self.last_extraction_tick = None;
+
         // Recreate the Master Room after a clear
         self.setup_world();
     }
@@ -804,24 +842,23 @@ impl WorldState for BevyWorldAdapter {
 
     #[allow(clippy::collapsible_if)]
     fn get_client_room(&self, client_id: ClientId) -> Option<NetworkId> {
-        // Find the session ship for this client by iterating bimap
-        let mut session_entity = None;
-        for (_, &entity) in &self.bimap {
-            if let Some(owner) = self.world.get::<crate::components::NetworkOwner>(entity) {
-                if owner.0 == client_id
-                    && self
-                        .world
-                        .get::<crate::components::SessionShip>(entity)
-                        .is_some()
-                {
-                    session_entity = Some(entity);
-                    break;
+        // 1. Check the fast lookup index
+        if let Some(index) = self.world.get_resource::<crate::components::RoomIndex>() {
+            if let Some(&room_id) = index.client_rooms.get(&client_id) {
+                return Some(room_id);
+            }
+        }
+
+        // 2. Fallback for Playground: Every client is in Playground_Master by default
+        // We use a manual loop over bimap to avoid needing &mut World for a Query
+        for (_, entity) in &self.bimap {
+            if let Some(def) = self.world.get::<RoomDefinitionComponent>(*entity) {
+                if def.0.name.as_str() == "Playground_Master" {
+                    return self.bimap.get_by_right(entity).copied();
                 }
             }
         }
-        let e = session_entity?;
-        let membership = self.world.get::<RoomMembershipComponent>(e)?;
-        Some(membership.0.0)
+        None
     }
 }
 
