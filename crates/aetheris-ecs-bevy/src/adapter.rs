@@ -537,6 +537,7 @@ impl WorldState for BevyWorldAdapter {
 
         // We find the Playground_Master room id before spawning to avoid double borrow
         let mut master_nid = NetworkId(1); // Usually 1 if spawned first.
+        let mut found_master = false;
         {
             let mut query = self
                 .world
@@ -545,10 +546,19 @@ impl WorldState for BevyWorldAdapter {
                 if def.0.name.as_str() == "Playground_Master" {
                     if let Some(&nid) = self.bimap.get_by_right(&e) {
                         master_nid = nid;
+                        found_master = true;
                         break;
                     }
                 }
             }
+        }
+        if !found_master {
+            tracing::warn!(
+                master_nid = ?master_nid,
+                "spawn_kind: Playground_Master room not found — defaulting to {:?}. \
+                 Has setup_world() been called?",
+                master_nid
+            );
         }
 
         let mut entity_mut = self.world.spawn((

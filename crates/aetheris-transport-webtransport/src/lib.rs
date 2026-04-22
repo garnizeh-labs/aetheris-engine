@@ -364,32 +364,48 @@ async fn handle_incoming_connection(
 }
 
 async fn generate_self_signed_identity() -> (Identity, String) {
+    // Bump this constant whenever the cert parameters change (e.g. added SANs)
+    // so that old cached certs are automatically invalidated.
+    const CERT_VERSION: &str = "v2";
+
     let cert_dir = std::path::PathBuf::from("target/dev-certs");
     let cert_path = cert_dir.join("cert.pem");
     let key_path = cert_dir.join("key.pem");
     let hash_path = cert_dir.join("cert.sha256");
+    let version_path = cert_dir.join("cert.version");
 
     if cert_path.exists() && key_path.exists() && hash_path.exists() {
-        match (
-            tokio::fs::read_to_string(&hash_path).await,
-            Identity::load_pemfiles(&cert_path, &key_path).await,
-        ) {
-            (Ok(hash_b64), Ok(identity)) => {
-                info!("--------------------------------------------------");
-                info!("WEBTRANSPORT SELF-SIGNED CERTIFICATE LOADED");
-                info!("SHA-256 Hash (Base64): {}", hash_b64.trim());
-                info!("(Delete target/dev-certs/ to force regeneration)");
-                info!("--------------------------------------------------");
-                return (identity, hash_b64.trim().to_string());
+        let version_ok = tokio::fs::read_to_string(&version_path)
+            .await
+            .map(|v| v.trim() == CERT_VERSION)
+            .unwrap_or(false);
+
+        if version_ok {
+            match (
+                tokio::fs::read_to_string(&hash_path).await,
+                Identity::load_pemfiles(&cert_path, &key_path).await,
+            ) {
+                (Ok(hash_b64), Ok(identity)) => {
+                    info!("--------------------------------------------------");
+                    info!("WEBTRANSPORT SELF-SIGNED CERTIFICATE LOADED");
+                    info!("SHA-256 Hash (Base64): {}", hash_b64.trim());
+                    info!("(Delete target/dev-certs/ to force regeneration)");
+                    info!("--------------------------------------------------");
+                    return (identity, hash_b64.trim().to_string());
+                }
+                (hash_err, identity_err) => {
+                    warn!(
+                        "Failed to load persistent certificate (hash_err: {:?}, id_err: {:?}). Regenerating...",
+                        hash_err.is_err(),
+                        identity_err.is_err()
+                    );
+                    // Fall through to regeneration
+                }
             }
-            (hash_err, identity_err) => {
-                warn!(
-                    "Failed to load persistent certificate (hash_err: {:?}, id_err: {:?}). Regenerating...",
-                    hash_err.is_err(),
-                    identity_err.is_err()
-                );
-                // Fall through to regeneration
-            }
+        } else {
+            info!(
+                "Dev cert version mismatch (expected {CERT_VERSION}) — regenerating to pick up updated SAN list"
+            );
         }
     }
 
@@ -441,6 +457,9 @@ async fn generate_self_signed_identity() -> (Identity, String) {
     tokio::fs::write(&hash_path, &hash_b64)
         .await
         .expect("Failed to write cert hash");
+    tokio::fs::write(&version_path, CERT_VERSION)
+        .await
+        .expect("Failed to write cert version");
 
     info!("--------------------------------------------------");
     info!("WEBTRANSPORT SELF-SIGNED CERTIFICATE GENERATED");

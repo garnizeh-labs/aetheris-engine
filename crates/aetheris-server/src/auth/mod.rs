@@ -228,8 +228,8 @@ impl AuthServiceImpl {
             .build(&self.session_key)
             .map_err(|e| Status::internal(format!("{e:?}")))?;
 
-        // Initialize session activity
-        self.session_activity.insert(jti, iat.timestamp_millis());
+        // Initialize session activity (store seconds, matched by is_session_authorized)
+        self.session_activity.insert(jti, iat.timestamp());
 
         Ok((token, exp.timestamp_millis() as u64))
     }

@@ -757,12 +757,13 @@ mod tests {
 
     #[test]
     fn test_input_replicator_malformed_payload() {
-        use crate::components::{LatestInput, NetworkOwner};
+        use crate::components::{LatestInput, NetworkOwner, SessionShip};
         use aetheris_protocol::events::ComponentUpdate;
         use aetheris_protocol::types::{ClientId, ComponentKind, NetworkId};
 
         let mut world = World::new();
-        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        // SessionShip marker required: InputCommandReplicator gates on its presence
+        let entity = world.spawn((NetworkOwner(ClientId(1)), SessionShip)).id();
         let replicator = InputCommandReplicator;
 
         replicator.apply(

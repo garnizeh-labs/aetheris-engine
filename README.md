@@ -63,7 +63,7 @@ just --list
 
 ## The Three Pillars
 
-1. **Authoritative Scheduling**: A high-precision 60Hz loop governing the six stages of a tick: **Poll**, **Authorize**, **Simulate**, **Extract**, **Encode**, and **Send**.
+1. **Authoritative Scheduling**: A high-precision 60Hz loop governing the five stages of a tick: **POLL**, **APPLY**, **SIMULATE**, **EXTRACT**, and **SEND** — each must complete within 16.6 ms total; no blocking I/O is permitted inside any stage.
 2. **Simulation Abstraction**: A trait-driven bridge allowing the engine to drive any ECS (Bevy or custom) without modifying networking logic.
 3. **Hardened Integrity**: Every input is validated, every state is replicated, and every vital is protected against division-by-zero or out-of-bounds corruption.
 
