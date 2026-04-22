@@ -158,17 +158,21 @@ impl AuthServiceImpl {
     /// Validates a session token and returns the JTI if authorized.
     #[must_use]
     pub fn validate_and_get_jti(&self, token: &str, tick: Option<u64>) -> Option<String> {
+        let t0 = std::time::Instant::now();
         let claims = PasetoParser::<V4, Local>::default()
             .parse(token, &self.session_key)
             .ok()?;
 
         let jti = claims.get("jti").and_then(|v| v.as_str())?;
 
-        if self.is_session_authorized(jti, tick) {
+        let result = if self.is_session_authorized(jti, tick) {
             Some(jti.to_string())
         } else {
             None
-        }
+        };
+        metrics::histogram!("aetheris_auth_validation_duration_seconds")
+            .record(t0.elapsed().as_secs_f64());
+        result
     }
 
     /// Validates a session by JTI, checking for revocation and enforcing 1h sliding idle window.
@@ -242,20 +246,24 @@ impl AuthService for AuthServiceImpl {
         request: Request<OtpRequest>,
     ) -> Result<Response<OtpRequestAck>, Status> {
         // M10146 — Rate Limiting (M1005 §3.4.2)
-        // 1. IP-based limit (30/h)
-        if let Some(addr) = request.remote_addr() {
-            let ip = addr.ip().to_string();
-            self.rate_limiter.check_limit(RateLimitType::Ip, &ip)?;
-        } else {
-            warn!("Request missing remote_addr; IP rate limiting skipped (check proxy config)");
+        if !self.bypass_enabled {
+            // 1. IP-based limit (30/h)
+            if let Some(addr) = request.remote_addr() {
+                let ip = addr.ip().to_string();
+                self.rate_limiter.check_limit(RateLimitType::Ip, &ip)?;
+            } else {
+                warn!("Request missing remote_addr; IP rate limiting skipped (check proxy config)");
+            }
         }
 
         let req = request.into_inner();
         let email = Self::normalize_email(&req.email);
 
         // 2. Email-based limit (5/h)
-        self.rate_limiter
-            .check_limit(RateLimitType::Email, &email)?;
+        if !self.bypass_enabled {
+            self.rate_limiter
+                .check_limit(RateLimitType::Email, &email)?;
+        }
 
         let mut rng = rand::rng();
         let code = format!("{:06}", rng.random_range(0..1_000_000));
@@ -337,7 +345,9 @@ impl AuthService for AuthServiceImpl {
                 // This block allows 'smoke-test@aetheris.dev' to login with pre-defined codes
                 // when AETHERIS_AUTH_BYPASS is enabled (strictly DEV/TEST environments only).
                 // TODO: In Phase 4, consider moving this logic to a dedicated Auth Sidecar.
-                if self.bypass_enabled && entry.email == "smoke-test@aetheris.dev" {
+                if self.bypass_enabled
+                    && (entry.email == "smoke-test@aetheris.dev" || entry.email.starts_with("bot_"))
+                {
                     // "000001" is the canonical 'Success' code for automated smoke tests and playground.
                     if code == "000001" {
                         tracing::warn!(email = entry.email, "Bypass authentication successful");

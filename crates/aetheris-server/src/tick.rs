@@ -24,6 +24,11 @@ pub struct TickScheduler {
         aetheris_protocol::types::ClientId,
         (String, Vec<aetheris_protocol::types::NetworkId>),
     >,
+    /// Tracks when each client was successfully authenticated.
+    /// Used to record `aetheris_session_start_latency_seconds` — the server-side
+    /// time from auth validation to Possession dispatch. See A-08 in
+    /// `performance/runs/20260422_101553/ACTIONS.md`.
+    auth_timestamps: HashMap<aetheris_protocol::types::ClientId, Instant>,
     reassembler: Reassembler,
     next_message_id: u32,
 }
@@ -37,6 +42,7 @@ impl TickScheduler {
             current_tick: 0,
             auth_service,
             authenticated_clients: HashMap::new(),
+            auth_timestamps: HashMap::new(),
             reassembler: Reassembler::new(),
             next_message_id: 0,
         }
@@ -53,17 +59,32 @@ impl TickScheduler {
         #[allow(clippy::cast_precision_loss)]
         let tick_duration = Duration::from_secs_f64(1.0 / self.tick_rate as f64);
         let mut interval = interval(tick_duration);
-        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        // Use Delay so that a slow tick shifts the next deadline rather than
+        // firing immediately (Burst) or silently skipping it (Skip). This keeps
+        // the effective tick rate at the configured target instead of running at
+        // whatever rate the hardware allows. See A-07 in performance/runs/20260422_092931/.
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         // Pre-allocate buffer for Stage 5 to avoid per-tick allocations.
         // Encoder's max_encoded_size is used as a safe upper bound.
         let mut encode_buffer = vec![0u8; encoder.max_encoded_size()];
+
+        let mut last_tick_wall = Instant::now();
 
         loop {
             tokio::select! {
                 _ = interval.tick() => {
                     let tick_num = self.current_tick;
                     let start = Instant::now();
+
+                    // Wall-clock tick rate: measured from the previous tick start.
+                    let wall_elapsed = start.duration_since(last_tick_wall);
+                    if wall_elapsed.as_secs_f64() > 0.0 {
+                        metrics::gauge!("aetheris_actual_tick_rate_hz")
+                            .set(1.0 / wall_elapsed.as_secs_f64());
+                    }
+                    last_tick_wall = start;
+
                     self.tick_step(
                         transport.as_mut(),
                         world.as_mut(),
@@ -143,6 +164,7 @@ impl TickScheduler {
                         let _ = world.despawn_networked(network_id);
                     }
                 }
+                self.auth_timestamps.remove(&client_id);
                 metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
             }
         }
@@ -195,6 +217,7 @@ impl TickScheduler {
                                 let _ = world.despawn_networked(network_id);
                             }
                         }
+                        self.auth_timestamps.remove(&id);
                         tracing::info!(client_id = ?id, "Client disconnected");
                         (id, Vec::new(), false)
                     }
@@ -207,6 +230,7 @@ impl TickScheduler {
                                 let _ = world.despawn_networked(network_id);
                             }
                         }
+                        self.auth_timestamps.remove(&id);
                         (id, Vec::new(), false)
                     }
                     NetworkEvent::StreamReset(id) => {
@@ -218,6 +242,7 @@ impl TickScheduler {
                                 let _ = world.despawn_networked(network_id);
                             }
                         }
+                        self.auth_timestamps.remove(&id);
                         (id, Vec::new(), false)
                     }
                     NetworkEvent::Ping { client_id, tick } => {
@@ -259,6 +284,7 @@ impl TickScheduler {
                                 let _ = world.despawn_networked(network_id);
                             }
                         }
+                        self.auth_timestamps.remove(&client_id);
                         metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
                         continue;
                     }
@@ -276,6 +302,9 @@ impl TickScheduler {
 
                                 self.authenticated_clients
                                     .insert(client_id, (jti, Vec::new()));
+                                // Record when auth completed so we can measure server-side
+                                // possession latency (A-08 profiling metric).
+                                self.auth_timestamps.insert(client_id, Instant::now());
 
                                 tracing::info!(
                                     ?client_id,
@@ -411,6 +440,17 @@ impl TickScheduler {
                                     Some(client_id),
                                     aetheris_protocol::events::GameEvent::Possession { network_id },
                                 );
+
+                                // Record server-side auth→possession latency (A-08 profiling).
+                                // This measures only the server cost (spawn + event queue) after
+                                // auth validation — not the client-observed round-trip time.
+                                // If this histogram shows values near zero the 6 ms stretch miss
+                                // in Time-to-Possess P99 is attributable to protocol handshake
+                                // and tick-scheduling jitter, not server processing.
+                                if let Some(auth_ts) = self.auth_timestamps.remove(&client_id) {
+                                    metrics::histogram!("aetheris_session_start_latency_seconds")
+                                        .record(auth_ts.elapsed().as_secs_f64());
+                                }
 
                                 tracing::info!(
                                     ?client_id,
@@ -603,6 +643,39 @@ impl TickScheduler {
                             delta.network_id,
                         );
                         if targets.is_empty() {
+                            if let Err(e) =
+                                transport.broadcast_unreliable(&encode_buffer[..len]).await
+                            {
+                                error!(error = ?e, "Failed to broadcast delta");
+                            } else {
+                                broadcast_count += 1;
+                            }
+                        } else if targets.len() == self.authenticated_clients.len() {
+                            // A-05: Phase 1 single-room broadcast short-circuit.
+                            //
+                            // SEMANTICS NOTE — broadcast_count:
+                            //   When sending individually, broadcast_count is incremented once
+                            //   per successful per-client send (so +N for N clients).
+                            //   When using broadcast_unreliable(), it is incremented only +1
+                            //   regardless of how many clients receive the datagram.
+                            //   This asymmetry is intentional and matches the existing pattern
+                            //   for the `targets.is_empty()` broadcast path above.
+                            //   The metric therefore counts *dispatch calls*, not *recipients*.
+                            //
+                            // CORRECTNESS CONSTRAINT — Phase 1 only:
+                            //   `broadcast_unreliable()` sends to ALL connected clients, not
+                            //   just the `targets` slice. This is only safe when `targets` ==
+                            //   the full `authenticated_clients` set, i.e. when there is exactly
+                            //   one room and every authenticated client is in it.
+                            //
+                            //   Phase 1 satisfies this: `get_delta_targets` returns all
+                            //   authenticated clients when the entity has no room override.
+                            //
+                            //   ⚠ MUST REVERT before AoI / multi-room lands (Phase 2+).
+                            //   When AoI introduces per-room filtering, `targets` will be a
+                            //   strict subset of `authenticated_clients` and broadcasting to
+                            //   everyone would send data to clients outside the entity's AoI,
+                            //   breaking both correctness and the interest-management guarantee.
                             if let Err(e) =
                                 transport.broadcast_unreliable(&encode_buffer[..len]).await
                             {

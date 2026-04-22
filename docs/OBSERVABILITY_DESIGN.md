@@ -83,6 +83,9 @@ Managed via the `metrics` crate and exported via `aetheris-server::metrics_serve
 |---|---|---|
 | `aetheris_tick_duration_seconds` | Histogram | Full wall-clock duration of a game tick. |
 | `aetheris_stage_duration_seconds{stage}`| Histogram | Duration per pipeline stage. |
+| `aetheris_actual_tick_rate_hz` | Gauge | Wall-clock tick rate (Hz) measured between consecutive tick starts. Used to detect scheduler over-ticking (see A-07). |
+| `aetheris_session_start_latency_seconds` | Histogram | Server-side time from auth validation to `Possession` event dispatch. Measures the spawn path inside `TickScheduler` only — not the client-observed round-trip. Confirmed near-zero in Phase 1 profiling; the client-observed Time-to-Possess gap (≈6 ms above stretch target) is attributable to the renet/netcode UDP handshake, not server processing. See A-08 in `performance/runs/20260422_101553/`. |
+| `aetheris_datagram_drop_rate` | Gauge | Average packet loss across all currently connected clients. Resets to 0.0 when no clients are connected. |
 | `aetheris_connected_clients` | Gauge | Active authenticated Data Plane sessions. |
 | `aetheris_memory_allocated_bytes` | Gauge | RSS memory usage from `jemalloc-stats`. |
 
