@@ -45,6 +45,87 @@ fix:
 test:
     cargo nextest run --workspace --profile ci
 
+# Run a full stress test cycle and persist results in stress_results/<timestamp>
+[group('test')]
+stress clients='50' duration='30':
+    #!/usr/bin/env bash
+    set -e
+    # Step 1: Build both release binaries upfront so the two cargo processes
+    # never contend on the artifact directory lock.
+    echo "Building release binaries (server + stress bot)..."
+    cargo build --release -p aetheris-server --features phase1
+    cargo build --release -p aetheris-stress
+
+    RUN_ID=$(date +%Y%m%d_%H%M%S)
+    RESULTS_DIR="stress_results/${RUN_ID}"
+    mkdir -p "${RESULTS_DIR}"
+    echo "Stress Test Run: ${RUN_ID}"
+    echo "# Stress Test Report - ${RUN_ID}" > "${RESULTS_DIR}/README.md"
+    echo "" >> "${RESULTS_DIR}/README.md"
+    echo "**Configuration:**" >> "${RESULTS_DIR}/README.md"
+    echo "- Clients: {{ clients }}" >> "${RESULTS_DIR}/README.md"
+    echo "- Duration: {{ duration }}s" >> "${RESULTS_DIR}/README.md"
+    echo "- Build: release" >> "${RESULTS_DIR}/README.md"
+    echo "" >> "${RESULTS_DIR}/README.md"
+
+    METRICS_PORT=${AETHERIS_METRICS_PORT:-9000}
+
+    # Step 2: Launch pre-built server binary directly (no cargo compilation at runtime)
+    AETHERIS_ENV=dev AETHERIS_AUTH_BYPASS=1 RUST_LOG=info \
+        ./target/release/aetheris-server > "${RESULTS_DIR}/server.log" 2>&1 &
+    SERVER_PID=$!
+    echo "Server PID: ${SERVER_PID}"
+
+    # Ensure server is killed on exit
+    trap 'echo "Cleaning up server..."; kill "${SERVER_PID}" 2>/dev/null || true; wait "${SERVER_PID}" 2>/dev/null || true' EXIT
+
+    # Step 3: Wait for server to be ready (poll metrics endpoint, max 30s)
+    echo "Waiting for server to initialize on port ${METRICS_PORT}..."
+    READY=0
+    for i in $(seq 1 30); do
+        if curl -sf localhost:${METRICS_PORT}/metrics > /dev/null 2>&1; then
+            echo "Server ready after ${i}s"
+            READY=1
+            break
+        fi
+        sleep 1
+    done
+
+    if [ $READY -ne 1 ]; then
+        echo "Error: Server failed to become ready within 30s"
+        exit 1
+    fi
+
+    # Step 4: Run stress bot (pre-built binary)
+    echo "Stress test in progress ({{clients}} clients, {{duration}}s)..."
+    ./target/release/aetheris-bot --clients {{clients}} --duration {{duration}} > "${RESULTS_DIR}/bot.log" 2>&1
+    BOT_EXIT=$?
+
+    # Step 5: Capture metrics immediately after bot finishes
+    echo "Capturing server metrics from port ${METRICS_PORT}..."
+    curl -s localhost:${METRICS_PORT}/metrics > "${RESULTS_DIR}/server_metrics.txt" || echo "Failed to capture metrics"
+
+    if [ $BOT_EXIT -ne 0 ]; then
+        echo "Error: Stress bot failed with exit code $BOT_EXIT"
+        exit $BOT_EXIT
+    fi
+
+    # Step 6: Stop server (handled by trap EXIT, but we can do it explicitly here too if we want early return)
+
+    echo "## Final Summary" >> "${RESULTS_DIR}/README.md"
+    echo '```text' >> "${RESULTS_DIR}/README.md"
+    awk '/====/{i++} i==1, i==3' "${RESULTS_DIR}/bot.log" >> "${RESULTS_DIR}/README.md"
+    echo '```' >> "${RESULTS_DIR}/README.md"
+    echo "" >> "${RESULTS_DIR}/README.md"
+    echo "## Server Metrics" >> "${RESULTS_DIR}/README.md"
+    echo '```text' >> "${RESULTS_DIR}/README.md"
+    grep "aetheris_tick_duration" "${RESULTS_DIR}/server_metrics.txt" | grep -v "#" >> "${RESULTS_DIR}/README.md" || echo "No metrics found" >> "${RESULTS_DIR}/README.md"
+    echo '```' >> "${RESULTS_DIR}/README.md"
+    echo ""
+    awk '/====/{i++} i==1, i==3' "${RESULTS_DIR}/bot.log"
+    echo ""
+    echo "Results persisted in: ${RESULTS_DIR}"
+
 # Run security audits (licenses, advisories, vulnerabilities)
 
 [group('security')]
@@ -78,6 +159,10 @@ docs-strict:
 [group('run')]
 server:
     AETHERIS_ENV=dev AETHERIS_AUTH_BYPASS=1 RUST_LOG=info cargo run -p aetheris-server --features phase1 &
+
+# Start server for stress test with output redirected to a specific file
+_stress-server log_file:
+    @AETHERIS_ENV=dev AETHERIS_AUTH_BYPASS=1 RUST_LOG=info cargo run -p aetheris-server --release --features phase1 > {{ log_file }} 2>&1 &
 
 # Run the game server with ECS possession/input debug logging (foreground)
 # Shows [apply_updates] ownership checks, [InputCmd] gate checks, and [spawn_*] events.

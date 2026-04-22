@@ -6,11 +6,14 @@ import re
 
 # Configuration
 FORBIDDEN_WORDS = ["nexus"]
-IGNORE_DIRS = [".git", "node_modules", "target", "logs", "dist", "pkg"]
-IGNORE_FILES = ["check_branding.py"] # Don't check yourself
+IGNORE_DIRS = [".git", "node_modules", "target", "logs", "dist", "pkg", "stress_results", "performance"]
+IGNORE_FILES = ["check_branding.py"]
 
 def check_branding(root_dir):
     found_violations = 0
+    
+    # Pre-compile patterns
+    patterns = [(word, re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)) for word in FORBIDDEN_WORDS]
     
     for root, dirs, files in os.walk(root_dir):
         # Filter ignored directories
@@ -23,18 +26,20 @@ def check_branding(root_dir):
             file_path = os.path.join(root, file)
             
             # Skip basic binary files
-            if file_path.endswith((".wasm", ".png", ".jpg", ".jpeg", ".ico", ".aeb")):
+            if file_path.endswith((".wasm", ".png", ".jpg", ".jpeg", ".ico", ".aeb", ".lock")):
                 continue
                 
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    for word in FORBIDDEN_WORDS:
-                        # Use whole-word regex matching (case-insensitive)
-                        pattern = re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)
-                        if pattern.search(content):
-                            print(f"❌ Violation found: '{word}' in {file_path}")
-                            found_violations += 1
+                    # Read line by line to avoid memory issues with huge files
+                    for line_num, line in enumerate(f, 1):
+                        for word, pattern in patterns:
+                            if pattern.search(line):
+                                print(f"❌ Violation found: '{word}' in {file_path}:{line_num}")
+                                found_violations += 1
+                                # If we found one violation in this file, we can optionally continue to next file
+                                # or keep counting. Let's keep counting for now but break inner loop.
+                                break 
             except (UnicodeDecodeError, PermissionError, OSError):
                 # Skip files that cannot be read as text or are inaccessible
                 continue

@@ -24,6 +24,8 @@ use aetheris_encoder_serde::SerdeEncoder;
 use aetheris_protocol::traits::WorldState;
 use aetheris_server::MultiTransport;
 #[cfg(feature = "phase1")]
+use aetheris_transport_renet::RenetTransport;
+#[cfg(feature = "phase1")]
 use aetheris_transport_webtransport::WebTransportBridge;
 
 #[tokio::main]
@@ -194,6 +196,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         use aetheris_server::TickScheduler;
         let mut transport = MultiTransport::new();
+
+        // Register Renet (UDP) first so that Renet clients pay no extra overhead.
+        // MultiTransport::send_unreliable iterates in insertion order and returns
+        // on the first Ok — putting WebTransport first would cost every Renet send
+        // an extra failed async call (see ACTIONS.md A-02).
+        let renet_addr_str =
+            std::env::var("AETHERIS_RENET_ADDR").unwrap_or_else(|_| "0.0.0.0:5000".to_string());
+        let renet_addr = renet_addr_str.parse()?;
+
+        let mut renet_config = aetheris_transport_renet::RenetServerConfig::default();
+        if std::env::var("AETHERIS_AUTH_BYPASS").is_ok_and(|v| {
+            let v = v.to_lowercase();
+            v == "1" || v == "true" || v == "yes" || v == "on"
+        }) {
+            renet_config.max_new_connections_per_second = 100;
+        }
+        renet_config.max_unreliable_channel_memory_bytes = 5 * 1024 * 1024;
+
+        let renet = RenetTransport::new_server(renet_addr, Some(renet_config))?;
+        transport.add_transport(Box::new(renet));
+        tracing::info!(
+            "Aetheris Game Server (Renet/UDP) listening on {}",
+            renet_addr
+        );
+
         let wt_addr_str =
             std::env::var("AETHERIS_WT_ADDR").unwrap_or_else(|_| "[::]:4433".to_string());
         let wt_addr = wt_addr_str.parse()?;

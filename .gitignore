@@ -17,6 +17,7 @@ Thumbs.db
 # --- Aetheris Local Infrastructure ---
 /docker/data
 /logs/*.log
+/stress_results/
 /benches/*.old
 
 # --- Environmental Config ---

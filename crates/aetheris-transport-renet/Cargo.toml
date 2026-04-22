@@ -17,6 +17,7 @@ metrics = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 renet = { workspace = true }
 renet_netcode = { workspace = true }
+socket2 = "0.5"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "time"] }

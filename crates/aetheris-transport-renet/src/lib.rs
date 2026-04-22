@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use renet::{ChannelConfig, ConnectionConfig, RenetServer, SendType, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerConfig};
+use socket2::{Domain, Socket, Type};
 
 use aetheris_protocol::MAX_SAFE_PAYLOAD_SIZE;
 use aetheris_protocol::error::TransportError;
@@ -50,6 +51,8 @@ pub struct RenetServerConfig {
     pub max_new_connections_per_second: u32,
     /// Maximum inbound payload size (MTU).
     pub max_payload_size: usize,
+    /// Maximum memory usage for the unreliable channel buffer.
+    pub max_unreliable_channel_memory_bytes: usize,
 }
 
 impl Default for RenetServerConfig {
@@ -60,6 +63,7 @@ impl Default for RenetServerConfig {
             authentication: renet_netcode::ServerAuthentication::Unsecure,
             max_new_connections_per_second: 5,
             max_payload_size: MAX_SAFE_PAYLOAD_SIZE,
+            max_unreliable_channel_memory_bytes: 1024 * 1024,
         }
     }
 }
@@ -135,7 +139,7 @@ impl RenetTransport {
             server_channels_config: vec![
                 ChannelConfig {
                     channel_id: CHANNEL_UNRELIABLE,
-                    max_memory_usage_bytes: 1024 * 1024,
+                    max_memory_usage_bytes: config.max_unreliable_channel_memory_bytes,
                     send_type: SendType::Unreliable,
                 },
                 ChannelConfig {
@@ -159,7 +163,29 @@ impl RenetTransport {
             authentication: config.authentication,
         };
 
-        let socket = std::net::UdpSocket::bind(addr).map_err(TransportError::Io)?;
+        // Use socket2 to set kernel-level UDP receive/send buffers to 8 MiB each.
+        // The OS default (~208 KiB) is insufficient for the burst that occurs when
+        // all clients connect in the same tick (spawn spike), causing EAGAIN drops
+        // at the kernel level before renet even sees the datagrams (RC-4 in run
+        // 20260422_082515).
+        let raw = Socket::new(
+            if addr.is_ipv6() {
+                Domain::IPV6
+            } else {
+                Domain::IPV4
+            },
+            Type::DGRAM,
+            None,
+        )
+        .map_err(TransportError::Io)?;
+        raw.set_reuse_address(true).map_err(TransportError::Io)?;
+        raw.set_recv_buffer_size(8 * 1024 * 1024)
+            .map_err(TransportError::Io)?;
+        raw.set_send_buffer_size(8 * 1024 * 1024)
+            .map_err(TransportError::Io)?;
+        raw.set_nonblocking(true).map_err(TransportError::Io)?;
+        raw.bind(&addr.into()).map_err(TransportError::Io)?;
+        let socket: std::net::UdpSocket = raw.into();
         let local_addr = socket.local_addr().map_err(TransportError::Io)?;
 
         let transport = NetcodeServerTransport::new(server_config, socket)
@@ -411,6 +437,13 @@ impl GameTransport for RenetTransport {
         if connected_count > 0 {
             metrics::gauge!("aetheris_datagram_drop_rate")
                 .set(total_loss / f64::from(connected_count));
+        } else {
+            // When no clients are connected the drop rate is meaningfully zero.
+            // Without this explicit reset the gauge retains its last non-zero value
+            // (typically 1.0 from a client whose connection was being torn down), which
+            // produces false positives in dashboards and alerts at idle.
+            // See A-09 in performance/runs/20260422_101553/ACTIONS.md.
+            metrics::gauge!("aetheris_datagram_drop_rate").set(0.0);
         }
 
         Ok(events)
