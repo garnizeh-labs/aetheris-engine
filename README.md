@@ -15,7 +15,7 @@
 In modern multiplayer architecture, the server is more than a message relay — it is the absolute source of truth. **Aetheris Engine** provides the sub-millisecond precision, high-frequency tick scheduling, and deterministic ECS bridging required to synchronize complex worlds across unreliable networks.
 
 > [!IMPORTANT]
-> 🚀 **Current State:** **VS-05 (Playground Input) complete!** Protocol v0.2.11 & Authoritative Physics. Finalized the Six-Stage Tick Pipeline (including `post_extract`) and implemented possession-gated input processing.
+> 🚀 **Current State:** **VS-06 (World & Room Management) complete!** Protocol v0.2.11, Authoritative Physics, and Room-as-Entity architecture. Finalized the Six-Stage Tick Pipeline and foundational interest management to support upcoming Combat (VS-03) and Multi-Player (VS-04) slices.
 
 ### 📦 Workspace Components
 
