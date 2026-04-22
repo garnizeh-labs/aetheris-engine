@@ -20,7 +20,7 @@ use aetheris_server::auth::email::EmailSender;
 use tonic::transport::Channel;
 use tonic::{Response, Status};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_grpc_auth_flow() -> Result<(), Box<dyn std::error::Error>> {
     use std::net::SocketAddr;
     use tonic::transport::Server;
@@ -136,7 +136,7 @@ async fn test_grpc_auth_flow() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_server_loop_1000_ticks() {
     let transport = Box::new(MockTransport::new());
     let world = Box::new(MockWorldState::new());
@@ -152,7 +152,13 @@ async fn test_server_loop_1000_ticks() {
     let tick_rate = 1000;
     let auth_service =
         AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
-    let mut scheduler = TickScheduler::new(tick_rate, auth_service);
+    let encode_pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let mut scheduler = TickScheduler::new(tick_rate, auth_service, encode_pool);
 
     let handle = tokio::spawn(async move {
         scheduler.run(transport, world, encoder, shutdown_rx).await;
@@ -315,7 +321,7 @@ async fn inject_auth_handshake(
         });
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_client_connect_and_replication() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -356,7 +362,13 @@ async fn test_client_connect_and_replication() {
         });
     }
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
+    let encode_pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let mut scheduler = TickScheduler::new(100, auth_service, encode_pool);
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -387,7 +399,7 @@ async fn test_client_connect_and_replication() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_full_integration_suite() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -419,7 +431,13 @@ async fn test_full_integration_suite() {
 
     let nid = state.world.lock().unwrap().spawn_networked();
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
+    let encode_pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let mut scheduler = TickScheduler::new(100, auth_service, encode_pool);
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -465,7 +483,7 @@ async fn test_full_integration_suite() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_consecutive_dropped_packets_interpolation() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -497,7 +515,13 @@ async fn test_consecutive_dropped_packets_interpolation() {
 
     let nid = state.world.lock().unwrap().spawn_networked();
 
-    let mut scheduler = TickScheduler::new(100, auth_service); // 10ms ticks
+    let encode_pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let mut scheduler = TickScheduler::new(100, auth_service, encode_pool); // 10ms ticks
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -545,7 +569,7 @@ async fn test_consecutive_dropped_packets_interpolation() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_wasm_mtu_handling_simulation() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -574,7 +598,13 @@ async fn test_wasm_mtu_handling_simulation() {
         AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
     inject_auth_handshake(&state.transport, cid, &auth_service).await;
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
+    let encode_pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let mut scheduler = TickScheduler::new(100, auth_service, encode_pool);
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -605,7 +635,7 @@ async fn test_wasm_mtu_handling_simulation() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_large_delta_fragmentation() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -690,7 +720,13 @@ async fn test_large_delta_fragmentation() {
         });
     }
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
+    let encode_pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let mut scheduler = TickScheduler::new(100, auth_service, encode_pool);
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(LargeEncoderRef {

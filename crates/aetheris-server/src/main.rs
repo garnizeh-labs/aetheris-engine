@@ -2,12 +2,12 @@ use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
 use aetheris_protocol::matchmaking::v1::matchmaking_service_server::MatchmakingServiceServer;
 use aetheris_protocol::telemetry::v1::telemetry_service_server::TelemetryServiceServer;
 use aetheris_server::{
+    TickScheduler,
     auth::AuthServiceImpl,
     auth::email::{EmailSender, LettreSmtpEmailSender, LogEmailSender, ResendEmailSender},
     config::ServerConfig,
     matchmaking::MatchmakingServiceImpl,
     telemetry::{AetherisTelemetryService, json_telemetry_handler},
-    TickScheduler,
 };
 use axum::Router;
 use axum::routing::post;
@@ -266,9 +266,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             #[cfg(unix)]
             {
-                use tokio::signal::unix::{signal, SignalKind};
-                let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-                let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+                use tokio::signal::unix::{SignalKind, signal};
+                let mut sigterm =
+                    signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                let mut sigint =
+                    signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
 
                 tokio::select! {
                     _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
@@ -353,9 +355,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             #[cfg(unix)]
             {
-                use tokio::signal::unix::{signal, SignalKind};
-                let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-                let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+                use tokio::signal::unix::{SignalKind, signal};
+                let mut sigterm =
+                    signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                let mut sigint =
+                    signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
 
                 tokio::select! {
                     _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
@@ -425,8 +429,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
     }
 
-        tracing::info!("Aetheris Server shutdown complete. Telemetry will flush on exit.");
-        Ok(())
+    tracing::info!("Aetheris Server shutdown complete. Telemetry will flush on exit.");
+    Ok(())
 }
 
 fn get_tls_paths() -> (String, String) {

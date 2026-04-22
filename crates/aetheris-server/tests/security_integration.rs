@@ -39,7 +39,7 @@ impl TryFrom<Vec<u8>> for MockPos {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_entity_hijacking_prevention() {
     let _ = tracing_subscriber::fmt::try_init();
     let bevy_world = World::new();
@@ -60,7 +60,13 @@ async fn test_entity_hijacking_prevention() {
 
     let auth_service =
         AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
-    let mut scheduler = TickScheduler::new(100, auth_service.clone());
+    let encode_pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), encode_pool);
 
     {
         let t = state.transport.lock().await;
@@ -312,7 +318,7 @@ async fn test_entity_hijacking_prevention() {
     handle.abort();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_grpc_message_size_limit() -> Result<(), Box<dyn std::error::Error>> {
     use aetheris_protocol::auth::v1::auth_service_client::AuthServiceClient;
     use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;

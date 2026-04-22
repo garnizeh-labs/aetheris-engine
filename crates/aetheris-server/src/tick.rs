@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+
 use tokio::sync::broadcast;
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{Instrument, debug_span, error, info_span};
@@ -499,6 +501,11 @@ impl TickScheduler {
                                 aetheris_protocol::events::GameEvent::SystemManifest { manifest },
                             );
                         }
+                        NetworkEvent::ReplicationBatch { events, .. } => {
+                            for event in events {
+                                updates.push((client_id, event.into()));
+                            }
+                        }
                         _ => {
                             tracing::trace!(?protocol_event, "Protocol event");
                         }
@@ -628,21 +635,24 @@ impl TickScheduler {
             > = HashMap::with_capacity(self.authenticated_clients.len());
 
             for delta in deltas {
-                let targets = Self::get_delta_targets(
-                    world,
-                    &self.authenticated_clients,
-                    delta.network_id,
-                );
+                let targets =
+                    Self::get_delta_targets(world, &self.authenticated_clients, delta.network_id);
 
                 if targets.is_empty() {
                     // Global broadcast (to all authenticated clients)
                     for &client_id in self.authenticated_clients.keys() {
-                        client_batches.entry(client_id).or_default().push(delta.clone());
+                        client_batches
+                            .entry(client_id)
+                            .or_default()
+                            .push(delta.clone());
                     }
                 } else {
                     // Targeted multicast (AoI / Room filtered)
                     for target in targets {
-                        client_batches.entry(target).or_default().push(delta.clone());
+                        client_batches
+                            .entry(target)
+                            .or_default()
+                            .push(delta.clone());
                     }
                 }
             }
@@ -650,8 +660,6 @@ impl TickScheduler {
             // A-04: Parallel Stage 5 Encode
             // CPU-intensive serialization is offloaded to a dedicated Rayon pool.
             // We use block_in_place to inform Tokio that the current thread is performing CPU-heavy work.
-            use rayon::prelude::*;
-
             let batches_to_encode: Vec<_> = client_batches.into_iter().collect();
 
             let encoded_results = tokio::task::block_in_place(|| {
