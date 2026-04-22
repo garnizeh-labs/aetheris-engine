@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.6.1] - 2026-04-22
+
+### 🚀 Features
+
+- *(engine)* Integrate VS-05/VS-06 session flow and ADR-0003 compliance
+
+### 🐛 Bug Fixes
+
+- Address PR #45 review findings
+
+### 📚 Documentation
+
+- Update README to reflect VS-06 completion
 ## [0.6.0] - 2026-04-21
 ## [0.5.1] - 2026-04-21
 
