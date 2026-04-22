@@ -206,9 +206,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let renet_addr = renet_addr_str.parse()?;
 
         let mut renet_config = aetheris_transport_renet::RenetServerConfig::default();
-        if std::env::var("AETHERIS_AUTH_BYPASS").is_ok() {
+        if std::env::var("AETHERIS_AUTH_BYPASS").is_ok_and(|v| {
+            let v = v.to_lowercase();
+            v == "1" || v == "true" || v == "yes" || v == "on"
+        }) {
             renet_config.max_new_connections_per_second = 100;
         }
+        renet_config.max_unreliable_channel_memory_bytes = 5 * 1024 * 1024;
 
         let renet = RenetTransport::new_server(renet_addr, Some(renet_config))?;
         transport.add_transport(Box::new(renet));

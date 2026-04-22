@@ -643,45 +643,42 @@ impl TickScheduler {
                             delta.network_id,
                         );
                         if targets.is_empty() {
-                            if let Err(e) =
-                                transport.broadcast_unreliable(&encode_buffer[..len]).await
-                            {
-                                error!(error = ?e, "Failed to broadcast delta");
-                            } else {
-                                broadcast_count += 1;
+                            for &client_id in self.authenticated_clients.keys() {
+                                if let Err(e) = transport
+                                    .send_unreliable(client_id, &encode_buffer[..len])
+                                    .await
+                                {
+                                    error!(error = ?e, client = ?client_id, "Failed to send delta");
+                                } else {
+                                    broadcast_count += 1;
+                                }
                             }
                         } else if targets.len() == self.authenticated_clients.len() {
                             // A-05: Phase 1 single-room broadcast short-circuit.
                             //
                             // SEMANTICS NOTE — broadcast_count:
-                            //   When sending individually, broadcast_count is incremented once
+                            //   We iterate authenticated_clients and send individually to ensure
+                            //   unauthenticated connections do not receive data (broadcast_unreliable
+                            //   would send to everyone). broadcast_count is incremented once
                             //   per successful per-client send (so +N for N clients).
-                            //   When using broadcast_unreliable(), it is incremented only +1
-                            //   regardless of how many clients receive the datagram.
-                            //   This asymmetry is intentional and matches the existing pattern
-                            //   for the `targets.is_empty()` broadcast path above.
-                            //   The metric therefore counts *dispatch calls*, not *recipients*.
+                            //   This ensures metric semantics are preserved.
                             //
-                            // CORRECTNESS CONSTRAINT — Phase 1 only:
-                            //   `broadcast_unreliable()` sends to ALL connected clients, not
-                            //   just the `targets` slice. This is only safe when `targets` ==
-                            //   the full `authenticated_clients` set, i.e. when there is exactly
-                            //   one room and every authenticated client is in it.
-                            //
-                            //   Phase 1 satisfies this: `get_delta_targets` returns all
-                            //   authenticated clients when the entity has no room override.
+                            //   The metric counts *dispatch calls* in this branch, which now
+                            //   equals the number of recipients.
                             //
                             //   ⚠ MUST REVERT before AoI / multi-room lands (Phase 2+).
                             //   When AoI introduces per-room filtering, `targets` will be a
-                            //   strict subset of `authenticated_clients` and broadcasting to
-                            //   everyone would send data to clients outside the entity's AoI,
-                            //   breaking both correctness and the interest-management guarantee.
-                            if let Err(e) =
-                                transport.broadcast_unreliable(&encode_buffer[..len]).await
-                            {
-                                error!(error = ?e, "Failed to broadcast delta");
-                            } else {
-                                broadcast_count += 1;
+                            //   strict subset of `authenticated_clients`. This branch should be
+                            //   removed or updated to handle true AoI-based multicasting.
+                            for &client_id in self.authenticated_clients.keys() {
+                                if let Err(e) = transport
+                                    .send_unreliable(client_id, &encode_buffer[..len])
+                                    .await
+                                {
+                                    error!(error = ?e, client = ?client_id, "Failed to send delta");
+                                } else {
+                                    broadcast_count += 1;
+                                }
                             }
                         } else {
                             for target in targets {

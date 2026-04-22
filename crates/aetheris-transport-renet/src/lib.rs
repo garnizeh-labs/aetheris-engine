@@ -51,6 +51,8 @@ pub struct RenetServerConfig {
     pub max_new_connections_per_second: u32,
     /// Maximum inbound payload size (MTU).
     pub max_payload_size: usize,
+    /// Maximum memory usage for the unreliable channel buffer.
+    pub max_unreliable_channel_memory_bytes: usize,
 }
 
 impl Default for RenetServerConfig {
@@ -61,6 +63,7 @@ impl Default for RenetServerConfig {
             authentication: renet_netcode::ServerAuthentication::Unsecure,
             max_new_connections_per_second: 5,
             max_payload_size: MAX_SAFE_PAYLOAD_SIZE,
+            max_unreliable_channel_memory_bytes: 1024 * 1024,
         }
     }
 }
@@ -136,7 +139,7 @@ impl RenetTransport {
             server_channels_config: vec![
                 ChannelConfig {
                     channel_id: CHANNEL_UNRELIABLE,
-                    max_memory_usage_bytes: 5 * 1024 * 1024,
+                    max_memory_usage_bytes: config.max_unreliable_channel_memory_bytes,
                     send_type: SendType::Unreliable,
                 },
                 ChannelConfig {

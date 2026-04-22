@@ -45,7 +45,7 @@ struct Args {
     duration: u64,
 
     /// gRPC Auth server host
-    #[arg(long, default_value = "http://0.0.0.0:50051")]
+    #[arg(long, default_value = "http://127.0.0.1:50051")]
     auth_host: String,
 
     /// Game server UDP host
@@ -356,6 +356,7 @@ async fn run_bot_inner(
     let mut last_stats_sample = Instant::now();
     let test_start_time = Instant::now();
 
+    let mut encoder_buffer = vec![0u8; encoder.max_encoded_size()];
     loop {
         if duration_secs > 0 && test_start_time.elapsed().as_secs() >= duration_secs {
             info!("Test duration reached, bot {} exiting", id);
@@ -434,10 +435,8 @@ async fn run_bot_inner(
                     tick: current_tick,
                 };
 
-                let mut buffer = vec![0u8; encoder.max_encoded_size()];
-                let len = encoder.encode(&replication_event, &mut buffer)?;
-
-                client.send_message(CHANNEL_UNRELIABLE, buffer[..len].to_vec());
+                let len = encoder.encode(&replication_event, &mut encoder_buffer)?;
+                client.send_message(CHANNEL_UNRELIABLE, encoder_buffer[..len].to_vec());
                 inputs_sent += 1;
                 stats.inputs_sent += 1;
             }

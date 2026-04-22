@@ -116,7 +116,7 @@ impl AuthServiceImpl {
 
         if bypass_enabled {
             tracing::warn!(
-                "Authentication bypass is ENABLED (DEV ONLY) — 000001 code will work for smoke-test@aetheris.dev"
+                "Authentication bypass is ENABLED (DEV ONLY) — 000001 code will work for smoke-test@aetheris.dev and bot_* addresses"
             );
         } else {
             tracing::info!("Authentication bypass is disabled");

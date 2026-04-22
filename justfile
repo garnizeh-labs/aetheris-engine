@@ -68,35 +68,49 @@ stress clients='50' duration='30':
     echo "- Build: release" >> "${RESULTS_DIR}/README.md"
     echo "" >> "${RESULTS_DIR}/README.md"
 
+    METRICS_PORT=${AETHERIS_METRICS_PORT:-9000}
+
     # Step 2: Launch pre-built server binary directly (no cargo compilation at runtime)
     AETHERIS_ENV=dev AETHERIS_AUTH_BYPASS=1 RUST_LOG=info \
         ./target/release/aetheris-server > "${RESULTS_DIR}/server.log" 2>&1 &
     SERVER_PID=$!
     echo "Server PID: ${SERVER_PID}"
 
+    # Ensure server is killed on exit
+    trap 'echo "Cleaning up server..."; kill "${SERVER_PID}" 2>/dev/null || true; wait "${SERVER_PID}" 2>/dev/null || true' EXIT
+
     # Step 3: Wait for server to be ready (poll metrics endpoint, max 30s)
-    echo "Waiting for server to initialize..."
+    echo "Waiting for server to initialize on port ${METRICS_PORT}..."
+    READY=0
     for i in $(seq 1 30); do
-        if curl -sf localhost:9000/metrics > /dev/null 2>&1; then
+        if curl -sf localhost:${METRICS_PORT}/metrics > /dev/null 2>&1; then
             echo "Server ready after ${i}s"
+            READY=1
             break
         fi
         sleep 1
     done
 
+    if [ $READY -ne 1 ]; then
+        echo "Error: Server failed to become ready within 30s"
+        exit 1
+    fi
+
     # Step 4: Run stress bot (pre-built binary)
     echo "Stress test in progress ({{clients}} clients, {{duration}}s)..."
-    ./target/release/aetheris-bot --clients {{clients}} --duration {{duration}} > "${RESULTS_DIR}/bot.log" 2>&1 || true
+    ./target/release/aetheris-bot --clients {{clients}} --duration {{duration}} > "${RESULTS_DIR}/bot.log" 2>&1
+    BOT_EXIT=$?
 
     # Step 5: Capture metrics immediately after bot finishes
-    echo "Capturing server metrics..."
-    curl -s localhost:9000/metrics > "${RESULTS_DIR}/server_metrics.txt" || echo "Failed to capture metrics"
+    echo "Capturing server metrics from port ${METRICS_PORT}..."
+    curl -s localhost:${METRICS_PORT}/metrics > "${RESULTS_DIR}/server_metrics.txt" || echo "Failed to capture metrics"
 
-    # Step 6: Stop server
-    echo "Stopping server..."
-    kill "${SERVER_PID}" 2>/dev/null || true
-    wait "${SERVER_PID}" 2>/dev/null || true
-    sleep 1
+    if [ $BOT_EXIT -ne 0 ]; then
+        echo "Error: Stress bot failed with exit code $BOT_EXIT"
+        exit $BOT_EXIT
+    fi
+
+    # Step 6: Stop server (handled by trap EXIT, but we can do it explicitly here too if we want early return)
 
     echo "## Final Summary" >> "${RESULTS_DIR}/README.md"
     echo '```text' >> "${RESULTS_DIR}/README.md"
