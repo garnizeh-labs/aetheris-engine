@@ -177,15 +177,36 @@ impl ComponentReplicator for InputCommandReplicator {
         use crate::components::LatestInput;
         use crate::components::NetworkOwner;
         use crate::components::ServerTick;
+        use crate::components::SessionShip;
         use aetheris_protocol::types::InputCommand;
 
         // 1. Verify Ownership (M1013 §4.2)
         // Entities missing Ownership(ClientId) MUST reject all client updates.
         // This provides defense-in-depth even if the caller (Adapter) skipped the check.
-        if world.get::<NetworkOwner>(entity).is_none() {
+        let has_owner = world.get::<NetworkOwner>(entity).is_some();
+        let has_session = world.get::<SessionShip>(entity).is_some();
+        tracing::debug!(
+            network_id = update.network_id.0,
+            has_owner,
+            has_session,
+            "[InputCmd] gate check"
+        );
+        if !has_owner {
             tracing::warn!(
                 network_id = update.network_id.0,
                 "Rejected InputCommand: Entity missing Ownership"
+            );
+            return;
+        }
+
+        // 2. Possession gate — only the session ship may receive InputCommands.
+        // Playground entities spawned via NetworkEvent::Spawn intentionally lack the
+        // SessionShip marker, preventing the client from controlling them even if the
+        // client_id matches (ownership passes) but the entity is not the session ship.
+        if !has_session {
+            tracing::warn!(
+                network_id = update.network_id.0,
+                "Rejected InputCommand: Entity is not a session ship"
             );
             return;
         }
@@ -225,6 +246,20 @@ impl ComponentReplicator for InputCommandReplicator {
                             .saturating_add(MAX_FORWARD_TICK_JUMP)
                 {
                     latest.last_client_tick = command.tick;
+                    if command.actions.is_empty() {
+                        tracing::trace!(
+                            network_id = update.network_id.0,
+                            tick = command.tick,
+                            "Applied InputCommand (no actions)"
+                        );
+                    } else {
+                        tracing::info!(
+                            network_id = update.network_id.0,
+                            tick = command.tick,
+                            actions = command.actions.len(),
+                            "Applied InputCommand"
+                        );
+                    }
                     latest.command = command;
                 }
             } else {
@@ -427,6 +462,39 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         )),
     });
 
+    // 129: RoomDefinition (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::ROOM_DEFINITION_KIND,
+        name: "RoomDefinition",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<RoomDefinitionComponent>::new(
+            aetheris_protocol::types::ROOM_DEFINITION_KIND,
+        )),
+    });
+
+    // 130: RoomBounds (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::ROOM_BOUNDS_KIND,
+        name: "RoomBounds",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<RoomBoundsComponent>::new(
+            aetheris_protocol::types::ROOM_BOUNDS_KIND,
+        )),
+    });
+
+    // 131: RoomMembership (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::ROOM_MEMBERSHIP_KIND,
+        name: "RoomMembership",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<RoomMembershipComponent>::new(
+            aetheris_protocol::types::ROOM_MEMBERSHIP_KIND,
+        )),
+    });
+
     // 128: InputCommand (Core Extension - Inbound Only)
     registry.register(ComponentDescriptor {
         kind: aetheris_protocol::types::INPUT_COMMAND_KIND,
@@ -446,11 +514,11 @@ mod tests {
         let mut registry = ComponentRegistry::new();
         register_void_rush_components(&mut registry);
 
-        // Verify we have 18 components (14 replicated core + 3 mining + 1 transient input)
+        // Verify we have 21 components (14 replicated core + 3 mining + 3 room + 1 transient input)
         assert_eq!(
             registry.components.len(),
-            18,
-            "Registry MUST contain 18 components (17 replicated + 1 input)"
+            21,
+            "Registry MUST contain 21 components (20 replicated + 1 input)"
         );
 
         // Verify canonical IDs 1-14 are present (M1020)
@@ -513,12 +581,15 @@ mod tests {
         };
 
         let mut world = World::new();
-        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        let entity = world
+            .spawn((NetworkOwner(ClientId(1)), crate::components::SessionShip))
+            .id();
         let replicator = InputCommandReplicator;
 
         let cmd1 = InputCommand {
             tick: 100,
             actions: vec![PlayerInputKind::Move { x: 1.0, y: 0.0 }],
+            last_seen_input_tick: None,
         };
         let payload1 = rmp_serde::to_vec(&cmd1).unwrap();
 
@@ -546,6 +617,7 @@ mod tests {
         let cmd2 = InputCommand {
             tick: 100,
             actions: vec![PlayerInputKind::Move { x: 0.0, y: 1.0 }],
+            last_seen_input_tick: None,
         };
         let payload2 = rmp_serde::to_vec(&cmd2).unwrap();
         replicator.apply(
@@ -571,6 +643,7 @@ mod tests {
         let cmd3 = InputCommand {
             tick: 101,
             actions: vec![PlayerInputKind::Move { x: 0.5, y: 0.5 }],
+            last_seen_input_tick: None,
         };
         let payload3 = rmp_serde::to_vec(&cmd3).unwrap();
         replicator.apply(
@@ -600,13 +673,16 @@ mod tests {
         use aetheris_protocol::types::{ClientId, ComponentKind, InputCommand, NetworkId};
 
         let mut world = World::new();
-        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        let entity = world
+            .spawn((NetworkOwner(ClientId(1)), crate::components::SessionShip))
+            .id();
         let replicator = InputCommandReplicator;
 
         // 1. Establish baseline
         let cmd1 = InputCommand {
             tick: 100,
             actions: vec![],
+            last_seen_input_tick: None,
         };
         replicator.apply(
             &mut world,
@@ -628,6 +704,7 @@ mod tests {
         let cmd2 = InputCommand {
             tick: 100 + MAX_FORWARD_TICK_JUMP + 1,
             actions: vec![],
+            last_seen_input_tick: None,
         };
         replicator.apply(
             &mut world,
@@ -660,6 +737,7 @@ mod tests {
         let cmd = InputCommand {
             tick: 100,
             actions: vec![],
+            last_seen_input_tick: None,
         };
 
         replicator.apply(
@@ -679,12 +757,13 @@ mod tests {
 
     #[test]
     fn test_input_replicator_malformed_payload() {
-        use crate::components::{LatestInput, NetworkOwner};
+        use crate::components::{LatestInput, NetworkOwner, SessionShip};
         use aetheris_protocol::events::ComponentUpdate;
         use aetheris_protocol::types::{ClientId, ComponentKind, NetworkId};
 
         let mut world = World::new();
-        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        // SessionShip marker required: InputCommandReplicator gates on its presence
+        let entity = world.spawn((NetworkOwner(ClientId(1)), SessionShip)).id();
         let replicator = InputCommandReplicator;
 
         replicator.apply(

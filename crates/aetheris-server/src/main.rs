@@ -21,6 +21,7 @@ use aetheris_ecs_bevy::BevyWorldAdapter;
 #[cfg(feature = "phase1")]
 use aetheris_encoder_serde::SerdeEncoder;
 #[cfg(feature = "phase1")]
+use aetheris_protocol::traits::WorldState;
 use aetheris_server::MultiTransport;
 #[cfg(feature = "phase1")]
 use aetheris_transport_webtransport::WebTransportBridge;
@@ -202,6 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = aetheris_server::config::ServerConfig::load();
         let tick_rate = config.tick_rate;
         let mut world = BevyWorldAdapter::new(bevy_ecs::world::World::new(), tick_rate);
+        world.setup_world();
         let mut registry = aetheris_ecs_bevy::registry::ComponentRegistry::new();
         aetheris_ecs_bevy::registry::register_void_rush_components(&mut registry);
 

@@ -77,7 +77,17 @@ docs-strict:
 
 [group('run')]
 server:
-    AETHERIS_AUTH_BYPASS=1 RUST_LOG=info cargo run -p aetheris-server --features phase1 &
+    AETHERIS_ENV=dev AETHERIS_AUTH_BYPASS=1 RUST_LOG=info cargo run -p aetheris-server --features phase1 &
+
+# Run the game server with ECS possession/input debug logging (foreground)
+# Shows [apply_updates] ownership checks, [InputCmd] gate checks, and [spawn_*] events.
+# Use this to diagnose "wrong entity receives input" problems.
+
+[group('run')]
+server-debug:
+    AETHERIS_ENV=dev AETHERIS_AUTH_BYPASS=1 \
+    RUST_LOG="info,aetheris_ecs_bevy=debug" \
+    cargo run -p aetheris-server --features phase1
 
 # Run a lightweight server for telemetry only
 
@@ -99,7 +109,7 @@ server-obs:
     @mkdir -p logs
     cargo build -p aetheris-server --release --features phase1
     LOG_FORMAT=json OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 RUST_LOG=info \
-        AETHERIS_AUTH_BYPASS=1 ./target/release/aetheris-server >> logs/server.log 2>&1 &
+        AETHERIS_ENV=dev AETHERIS_AUTH_BYPASS=1 ./target/release/aetheris-server >> logs/server.log 2>&1 &
 
 # Stop all background processes
 
@@ -125,6 +135,14 @@ clean:
 
 # Check semver compatibility for library crates before a release
 
+# Check semver compatibility for library crates before a release
+
 [group('release')]
 semver:
     cargo semver-checks --workspace
+
+# Follow logs from the last session
+[group('maintenance')]
+logs:
+    @mkdir -p logs
+    tail -f logs/*.log || true

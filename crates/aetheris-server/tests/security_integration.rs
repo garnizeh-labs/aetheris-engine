@@ -47,6 +47,7 @@ async fn test_entity_hijacking_prevention() {
     adapter.register_replicator(std::sync::Arc::new(aetheris_ecs_bevy::DefaultReplicator::<
         MockPos,
     >::new(ComponentKind(1))));
+    adapter.setup_world();
 
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -131,6 +132,32 @@ async fn test_entity_hijacking_prevention() {
         fn spawn_kind(&mut self, kind: u16, x: f32, y: f32, rot: f32) -> NetworkId {
             self.adapter.lock().unwrap().spawn_kind(kind, x, y, rot)
         }
+        fn spawn_kind_for(
+            &mut self,
+            kind: u16,
+            x: f32,
+            y: f32,
+            rot: f32,
+            client_id: ClientId,
+        ) -> NetworkId {
+            self.adapter
+                .lock()
+                .unwrap()
+                .spawn_kind_for(kind, x, y, rot, client_id)
+        }
+        fn spawn_session_ship(
+            &mut self,
+            kind: u16,
+            x: f32,
+            y: f32,
+            rot: f32,
+            client_id: ClientId,
+        ) -> NetworkId {
+            self.adapter
+                .lock()
+                .unwrap()
+                .spawn_session_ship(kind, x, y, rot, client_id)
+        }
         fn clear_world(&mut self) {
             self.adapter.lock().unwrap().clear_world();
         }
@@ -150,8 +177,27 @@ async fn test_entity_hijacking_prevention() {
     });
 
     // Wait for auth & spawn (be more generous and wait until entities exist)
-    let nid_a = NetworkId(1);
-    let nid_b = NetworkId(2);
+    let nid_a = NetworkId(2);
+    let nid_b = NetworkId(3);
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    {
+        let t = state.transport.lock().await;
+        let serde_encoder = aetheris_encoder_serde::SerdeEncoder::new();
+        t.inject_event(NetworkEvent::ReliableMessage {
+            client_id: cid_a,
+            data: serde_encoder
+                .encode_event(&NetworkEvent::StartSession { client_id: cid_a })
+                .unwrap(),
+        });
+        t.inject_event(NetworkEvent::ReliableMessage {
+            client_id: cid_b,
+            data: serde_encoder
+                .encode_event(&NetworkEvent::StartSession { client_id: cid_b })
+                .unwrap(),
+        });
+    }
 
     let mut attempts = 0;
     loop {
@@ -183,6 +229,13 @@ async fn test_entity_hijacking_prevention() {
             .world_mut()
             .entity_mut(bevy_ent_b)
             .insert(MockPos(10));
+
+        let ent_a = adapter.get_local_id(nid_a).unwrap();
+        let bevy_ent_a = bevy_ecs::entity::Entity::from_bits(ent_a.0);
+        adapter
+            .world_mut()
+            .entity_mut(bevy_ent_a)
+            .insert(MockPos(0));
     }
 
     // Attempt: Client A tries to update Entity B (Owned by B)

@@ -15,7 +15,7 @@
 In modern multiplayer architecture, the server is more than a message relay — it is the absolute source of truth. **Aetheris Engine** provides the sub-millisecond precision, high-frequency tick scheduling, and deterministic ECS bridging required to synchronize complex worlds across unreliable networks.
 
 > [!IMPORTANT]
-> 🚀 **Current State:** **VS-01 (One Ship, One Sector) complete!** Protocol v0.2.8 & Authoritative Physics. Finalized the Five-Stage Tick Pipeline and implemented spatial AoI filtering for 100+ concurrent players.
+> 🚀 **Current State:** **VS-06 (World & Room Management) complete!** Protocol v0.2.11, Authoritative Physics, and Room-as-Entity architecture. Finalized the Six-Stage Tick Pipeline and foundational interest management to support upcoming Combat (VS-03) and Multi-Player (VS-04) slices.
 
 ### 📦 Workspace Components
 
@@ -63,7 +63,7 @@ just --list
 
 ## The Three Pillars
 
-1. **Authoritative Scheduling**: A high-precision 60Hz loop governing the six stages of a tick: **Poll**, **Authorize**, **Simulate**, **Extract**, **Encode**, and **Send**.
+1. **Authoritative Scheduling**: A high-precision 60Hz loop governing the five stages of a tick: **POLL**, **APPLY**, **SIMULATE**, **EXTRACT**, and **SEND** — each must complete within 16.6 ms total; no blocking I/O is permitted inside any stage.
 2. **Simulation Abstraction**: A trait-driven bridge allowing the engine to drive any ECS (Bevy or custom) without modifying networking logic.
 3. **Hardened Integrity**: Every input is validated, every state is replicated, and every vital is protected against division-by-zero or out-of-bounds corruption.
 

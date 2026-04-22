@@ -208,11 +208,15 @@ impl AuthServiceImpl {
     }
 
     pub fn mint_session_token_for_test(&self, player_id: &str) -> Result<(String, u64), Status> {
-        self.mint_session_token(player_id)
+        self.mint_session_token(player_id, None)
     }
 
-    fn mint_session_token(&self, player_id: &str) -> Result<(String, u64), Status> {
-        let jti = Ulid::new().to_string();
+    fn mint_session_token(
+        &self,
+        player_id: &str,
+        jti: Option<String>,
+    ) -> Result<(String, u64), Status> {
+        let jti = jti.unwrap_or_else(|| Ulid::new().to_string());
         let iat = Utc::now();
         let exp = iat + Duration::hours(24);
 
@@ -224,8 +228,8 @@ impl AuthServiceImpl {
             .build(&self.session_key)
             .map_err(|e| Status::internal(format!("{e:?}")))?;
 
-        // Initialize session activity
-        self.session_activity.insert(jti, iat.timestamp_millis());
+        // Initialize session activity (store seconds, matched by is_session_authorized)
+        self.session_activity.insert(jti, iat.timestamp());
 
         Ok((token, exp.timestamp_millis() as u64))
     }
@@ -343,7 +347,8 @@ impl AuthService for AuthServiceImpl {
                         let is_new_player =
                             self.player_registry.insert(player_id.clone(), ()).is_none();
 
-                        let (token, exp) = self.mint_session_token(&player_id)?;
+                        let (token, exp) =
+                            self.mint_session_token(&player_id, Some("admin".to_string()))?;
                         drop(entry);
                         self.otp_store.remove(&request_id);
 
@@ -385,7 +390,7 @@ impl AuthService for AuthServiceImpl {
                     let is_new_player =
                         self.player_registry.insert(player_id.clone(), ()).is_none();
 
-                    let (token, exp) = self.mint_session_token(&player_id)?;
+                    let (token, exp) = self.mint_session_token(&player_id, None)?;
                     drop(entry);
                     self.otp_store.remove(&request_id);
 
@@ -428,7 +433,7 @@ impl AuthService for AuthServiceImpl {
                 // Check if new player
                 let is_new_player = self.player_registry.insert(player_id.clone(), ()).is_none();
 
-                let (token, exp) = self.mint_session_token(&player_id)?;
+                let (token, exp) = self.mint_session_token(&player_id, None)?;
 
                 Ok(Response::new(LoginResponse {
                     session_token: token,
@@ -504,8 +509,13 @@ impl AuthService for AuthServiceImpl {
         // Revoke old token
         self.session_activity.remove(jti);
 
-        // Mint new token
-        let (new_token, exp) = self.mint_session_token(sub)?;
+        // Mint new token (preserve admin status if old token was admin)
+        let new_jti = if jti == "admin" {
+            Some("admin".to_string())
+        } else {
+            None
+        };
+        let (new_token, exp) = self.mint_session_token(sub, new_jti)?;
 
         Ok(Response::new(RefreshResponse {
             session_token: new_token,
