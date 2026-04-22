@@ -1,0 +1,41 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+## [0.7.0] - 2026-04-22
+
+### 🚀 Features
+
+- *(engine)* Consolidate multirepo (M10146) and upgrade to protocol 0.2.5
+- *(engine)* Integrate VS-05/VS-06 session flow and ADR-0003 compliance
+- Implement stress test bot and engine optimizations for high concurrency
+
+### 🐛 Bug Fixes
+
+- Address PR #45 review findings
+- Remove unused futures dependency in aetheris-stress
+
+### 🚜 Refactor
+
+- Replace broadcast with targeted per-client unreliable sends and optimize stress test and transport configuration
+
+### 📚 Documentation
+
+- Initial commit of engine documentation (redacted)
+- Enhance README with technical summary and links
+- Align with aetheris premium templates and port infrastructure
+- Fix cross-repo links and placeholders
+- Add README.md files to all workspace crates
+- *(engine)* Update README for M1020 milestone
+- Synchronize workspace crate badges
+- Standardize readme badges with protocol
+- Include missing ecs-custom and transport-quinn crates in readme
+- Update README to reflect VS-06 completion
+
+### ⚙️ Miscellaneous Tasks
+
+- *(engine)* Stabilize infrastructure, fix integration tests, and bump version to 0.2.0
