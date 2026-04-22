@@ -7,6 +7,7 @@ use aetheris_server::{
     config::ServerConfig,
     matchmaking::MatchmakingServiceImpl,
     telemetry::{AetherisTelemetryService, json_telemetry_handler},
+    TickScheduler,
 };
 use axum::Router;
 use axum::routing::post;
@@ -194,7 +195,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "phase1")]
     {
-        use aetheris_server::TickScheduler;
+        let encode_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(config.encode_threads)
+                .thread_name(|i| format!("aetheris-encode-{}", i))
+                .build()
+                .expect("Failed to build encode thread pool"),
+        );
+
         let mut transport = MultiTransport::new();
 
         // Register Renet (UDP) first so that Renet clients pay no extra overhead.
@@ -240,7 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let encoder = SerdeEncoder::new();
 
-        let mut scheduler = TickScheduler::new(tick_rate, auth_service.clone());
+        let mut scheduler = TickScheduler::new(tick_rate, auth_service.clone(), encode_pool);
         let shutdown_clone = shutdown_tx.subscribe();
 
         let scheduler_handle = tokio::spawn(async move {
@@ -256,8 +264,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let shutdown_auth_tx = shutdown_tx.clone();
         tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.ok();
-            tracing::info!("Shutdown signal received, triggering cancellation...");
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+
+                tokio::select! {
+                    _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
+                    _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                }
+            }
+
+            #[cfg(not(unix))]
+            {
+                tokio::signal::ctrl_c().await.ok();
+                tracing::info!("Shutdown signal received, triggering cancellation...");
+            }
+
             let _ = shutdown_auth_tx.send(());
         });
 
@@ -327,8 +351,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let shutdown_fallback_tx = shutdown_tx.clone();
         tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.ok();
-            tracing::info!("Shutdown signal received, triggering cancellation...");
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+
+                tokio::select! {
+                    _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
+                    _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                }
+            }
+
+            #[cfg(not(unix))]
+            {
+                tokio::signal::ctrl_c().await.ok();
+                tracing::info!("Shutdown signal received, triggering cancellation...");
+            }
+
             let _ = shutdown_fallback_tx.send(());
         });
 
@@ -385,7 +425,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
     }
 
-    Ok(())
+        tracing::info!("Aetheris Server shutdown complete. Telemetry will flush on exit.");
+        Ok(())
 }
 
 fn get_tls_paths() -> (String, String) {

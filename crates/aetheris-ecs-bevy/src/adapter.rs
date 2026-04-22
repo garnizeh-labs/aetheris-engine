@@ -289,7 +289,7 @@ impl WorldState for BevyWorldAdapter {
             let accel_y = move_y * (physics.thrust_force / total_mass);
 
             if accel_x.abs() > f32::EPSILON || accel_y.abs() > f32::EPSILON {
-                tracing::info!(
+                tracing::debug!(
                     ?network_id,
                     move_x,
                     move_y,

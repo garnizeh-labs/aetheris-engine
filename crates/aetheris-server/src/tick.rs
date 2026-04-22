@@ -31,12 +31,17 @@ pub struct TickScheduler {
     auth_timestamps: HashMap<aetheris_protocol::types::ClientId, Instant>,
     reassembler: Reassembler,
     next_message_id: u32,
+    encode_pool: std::sync::Arc<rayon::ThreadPool>,
 }
 
 impl TickScheduler {
     /// Creates a new scheduler with the specified tick rate.
     #[must_use]
-    pub fn new(tick_rate: u64, auth_service: AuthServiceImpl) -> Self {
+    pub fn new(
+        tick_rate: u64,
+        auth_service: AuthServiceImpl,
+        encode_pool: std::sync::Arc<rayon::ThreadPool>,
+    ) -> Self {
         Self {
             tick_rate,
             current_tick: 0,
@@ -45,6 +50,7 @@ impl TickScheduler {
             auth_timestamps: HashMap::new(),
             reassembler: Reassembler::new(),
             next_message_id: 0,
+            encode_pool,
         }
     }
 
@@ -64,10 +70,6 @@ impl TickScheduler {
         // the effective tick rate at the configured target instead of running at
         // whatever rate the hardware allows. See A-07 in performance/runs/20260422_092931/.
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-        // Pre-allocate buffer for Stage 5 to avoid per-tick allocations.
-        // Encoder's max_encoded_size is used as a safe upper bound.
-        let mut encode_buffer = vec![0u8; encoder.max_encoded_size()];
 
         let mut last_tick_wall = Instant::now();
 
@@ -89,7 +91,6 @@ impl TickScheduler {
                         transport.as_mut(),
                         world.as_mut(),
                         encoder.as_ref(),
-                        &mut encode_buffer,
                     )
                     .instrument(info_span!("tick", tick = tick_num))
                     .await;
@@ -112,7 +113,6 @@ impl TickScheduler {
         transport: &mut dyn GameTransport,
         world: &mut dyn WorldState,
         encoder: &dyn Encoder,
-        encode_buffer: &mut [u8],
     ) {
         let tick = self.current_tick;
         // Pre-Stage: Advance the world change tick before any inputs are applied.
@@ -262,6 +262,7 @@ impl TickScheduler {
                     | NetworkEvent::RequestSystemManifest { client_id }
                     | NetworkEvent::GameEvent { client_id, .. }
                     | NetworkEvent::StressTest { client_id, .. }
+                    | NetworkEvent::ReplicationBatch { client_id, .. }
                     | NetworkEvent::Spawn { client_id, .. } => (client_id, Vec::new(), false),
                     NetworkEvent::Pong { .. } | NetworkEvent::Auth { .. } => {
                         (aetheris_protocol::types::ClientId(0), Vec::new(), false)
@@ -619,114 +620,90 @@ impl TickScheduler {
             let stage_span = debug_span!("stage5_send", count = deltas.len());
             let _guard = stage_span.enter();
 
+            // A-01: Packet Batching (Phase 1 Optimization)
+            // Group all deltas by their target clients to avoid N*M packet explosion.
+            let mut client_batches: HashMap<
+                aetheris_protocol::types::ClientId,
+                Vec<aetheris_protocol::events::ReplicationEvent>,
+            > = HashMap::with_capacity(self.authenticated_clients.len());
+
             for delta in deltas {
-                let encode_result = encoder.encode(&delta, encode_buffer);
-                match encode_result {
-                    Ok(len) if len > aetheris_protocol::MAX_SAFE_PAYLOAD_SIZE => {
-                        let targets = Self::get_delta_targets(
-                            world,
-                            &self.authenticated_clients,
-                            delta.network_id,
-                        );
-                        match self
-                            .fragment_and_send(encode_buffer, len, &targets, encoder, transport)
-                            .await
-                        {
-                            Ok(count) => broadcast_count += count,
-                            Err(e) => error!(error = ?e, "Failed to fragment and broadcast delta"),
-                        }
+                let targets = Self::get_delta_targets(
+                    world,
+                    &self.authenticated_clients,
+                    delta.network_id,
+                );
+
+                if targets.is_empty() {
+                    // Global broadcast (to all authenticated clients)
+                    for &client_id in self.authenticated_clients.keys() {
+                        client_batches.entry(client_id).or_default().push(delta.clone());
                     }
-                    Ok(len) => {
-                        let targets = Self::get_delta_targets(
-                            world,
-                            &self.authenticated_clients,
-                            delta.network_id,
-                        );
-                        if targets.is_empty() {
-                            for &client_id in self.authenticated_clients.keys() {
-                                if let Err(e) = transport
-                                    .send_unreliable(client_id, &encode_buffer[..len])
-                                    .await
-                                {
-                                    error!(error = ?e, client = ?client_id, "Failed to send delta");
-                                } else {
-                                    broadcast_count += 1;
-                                }
-                            }
-                        } else if targets.len() == self.authenticated_clients.len() {
-                            // A-05: Phase 1 single-room broadcast short-circuit.
-                            //
-                            // SEMANTICS NOTE — broadcast_count:
-                            //   We iterate authenticated_clients and send individually to ensure
-                            //   unauthenticated connections do not receive data (broadcast_unreliable
-                            //   would send to everyone). broadcast_count is incremented once
-                            //   per successful per-client send (so +N for N clients).
-                            //   This ensures metric semantics are preserved.
-                            //
-                            //   The metric counts *dispatch calls* in this branch, which now
-                            //   equals the number of recipients.
-                            //
-                            //   ⚠ MUST REVERT before AoI / multi-room lands (Phase 2+).
-                            //   When AoI introduces per-room filtering, `targets` will be a
-                            //   strict subset of `authenticated_clients`. This branch should be
-                            //   removed or updated to handle true AoI-based multicasting.
-                            for &client_id in self.authenticated_clients.keys() {
-                                if let Err(e) = transport
-                                    .send_unreliable(client_id, &encode_buffer[..len])
-                                    .await
-                                {
-                                    error!(error = ?e, client = ?client_id, "Failed to send delta");
-                                } else {
-                                    broadcast_count += 1;
-                                }
-                            }
-                        } else {
-                            for target in targets {
-                                if let Err(e) = transport
-                                    .send_unreliable(target, &encode_buffer[..len])
-                                    .await
-                                {
-                                    error!(error = ?e, "Failed to send delta");
-                                } else {
-                                    broadcast_count += 1;
-                                }
-                            }
-                        }
-                    }
-                    Err(EncodeError::BufferOverflow {
-                        needed,
-                        available: _,
-                    }) => {
-                        let mut large_buffer = vec![0u8; needed];
-                        if let Ok(len) = encoder.encode(&delta, &mut large_buffer) {
-                            let targets = Self::get_delta_targets(
-                                world,
-                                &self.authenticated_clients,
-                                delta.network_id,
-                            );
-                            match self
-                                .fragment_and_send(&large_buffer, len, &targets, encoder, transport)
-                                .await
-                            {
-                                Ok(count) => broadcast_count += count,
-                                Err(e) => {
-                                    error!(error = ?e, "Failed to fragment and broadcast large delta");
-                                }
-                            }
-                        } else {
-                            error!("Failed to encode into large scratch buffer");
-                        }
-                    }
-                    Err(e) => {
-                        metrics::counter!("aetheris_encode_errors_total").increment(1);
-                        error!(
-                            network_id = ?delta.network_id,
-                            error = ?e,
-                            "Failed to encode delta"
-                        );
+                } else {
+                    // Targeted multicast (AoI / Room filtered)
+                    for target in targets {
+                        client_batches.entry(target).or_default().push(delta.clone());
                     }
                 }
             }
+
+            // A-04: Parallel Stage 5 Encode
+            // CPU-intensive serialization is offloaded to a dedicated Rayon pool.
+            // We use block_in_place to inform Tokio that the current thread is performing CPU-heavy work.
+            use rayon::prelude::*;
+
+            let batches_to_encode: Vec<_> = client_batches.into_iter().collect();
+
+            let encoded_results = tokio::task::block_in_place(|| {
+                self.encode_pool.install(|| {
+                    batches_to_encode
+                        .into_par_iter()
+                        .map(|(client_id, events)| {
+                            let batch_event =
+                                aetheris_protocol::events::NetworkEvent::ReplicationBatch {
+                                    client_id,
+                                    events,
+                                };
+                            // MEMORY_MANAGEMENT_DESIGN technical debt:
+                            // Returning a newly allocated Vec<u8> violates the zero-allocation hot-path rule.
+                            // To be refined in Phase 5 (Bitpack Encoder) with a pre-allocated buffer pool.
+                            let result = encoder.encode_event(&batch_event);
+                            (client_id, result)
+                        })
+                        .collect::<Vec<_>>()
+                })
+            });
+
+            for (client_id, result) in encoded_results {
+                match result {
+                    Ok(data) => {
+                        if data.len() > aetheris_protocol::MAX_SAFE_PAYLOAD_SIZE {
+                            // If the batch is too large for a single datagram, use the reassembler
+                            let targets = [client_id];
+                            match self
+                                .fragment_and_send(&data, data.len(), &targets, encoder, transport)
+                                .await
+                            {
+                                Ok(_count) => broadcast_count += 1,
+                                Err(e) => {
+                                    error!(error = ?e, ?client_id, "Failed to fragment large batch");
+                                }
+                            }
+                        } else {
+                            match transport.send_unreliable(client_id, &data).await {
+                                Ok(()) => broadcast_count += 1,
+                                Err(e) => {
+                                    error!(error = ?e, ?client_id, "Failed to send batch");
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = ?e, ?client_id, "Failed to encode batch");
+                    }
+                }
+            }
+
             metrics::counter!("aetheris_packets_outbound_total").increment(broadcast_count);
             metrics::counter!("aetheris_packets_broadcast_total").increment(broadcast_count);
         }

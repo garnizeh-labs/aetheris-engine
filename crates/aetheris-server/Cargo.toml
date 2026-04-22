@@ -70,6 +70,7 @@ opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 bevy_ecs = { workspace = true }
+rayon = "1.12.0"
 
 aetheris-transport-renet = { workspace = true, optional = true }
 aetheris-transport-webtransport = { workspace = true, optional = true }
