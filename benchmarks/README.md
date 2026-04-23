@@ -30,4 +30,4 @@ To compare your current state with a specific baseline saved in history:
 ## Retention Policy
 - **Milestone Baselines**: Benchmarks associated with a major vertical slice (VS-XX) or release are kept indefinitely.
 - **Daily Runs**: Automated or manual daily runs are kept for 30 days before being purged.
-- **Raw Data**: The `criterion/` folder is ignored by git to avoid bloat. Only `REPORT.md` is committed to history. Full artifacts should be stored in external storage if needed for deep analysis.
+- **Raw Data**: All raw Criterion data in the `criterion/` folder is committed to history to enable detailed comparison of the engine's evolution over time.

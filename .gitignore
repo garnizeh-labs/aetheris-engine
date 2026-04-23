@@ -19,7 +19,6 @@ Thumbs.db
 /logs/*.log
 /stress_results/
 /benches/*.old
-/benchmarks/**/criterion/
 
 # --- Environmental Config ---
 .env
