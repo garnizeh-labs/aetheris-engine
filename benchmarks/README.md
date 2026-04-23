@@ -26,3 +26,8 @@ To compare your current state with a specific baseline saved in history:
 1. Identify the reference benchmark folder (e.g., `benchmarks/2026-04-23_1038/`).
 2. Use the HTML report link inside `criterion/report/index.html` for graphical visualization.
 3. Consult the `REPORT.md` within that folder to understand the context of that measurement.
+
+## Retention Policy
+- **Milestone Baselines**: Benchmarks associated with a major vertical slice (VS-XX) or release are kept indefinitely.
+- **Daily Runs**: Automated or manual daily runs are kept for 30 days before being purged.
+- **Raw Data**: The `criterion/` folder is ignored by git to avoid bloat. Only `REPORT.md` is committed to history. Full artifacts should be stored in external storage if needed for deep analysis.

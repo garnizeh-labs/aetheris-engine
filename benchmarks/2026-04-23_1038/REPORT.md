@@ -26,10 +26,10 @@
 - **Observation**: Transform encoding via MessagePack takes ~141 ns per event. This allows for high-density replication without impacting the tick budget.
 
 ## 📈 Comparison with Previous Baseline
-- **Previous Baseline**: N/A (Initial Record)
+- **Previous Baseline**: Informal/unrecorded run
 - **Delta Summary**:
-  - `ecs_extract_dirty`: Improved by 3.17% compared to the previous unrecorded run.
-  - `tick_scheduler_step`: Improved by 2.08% compared to the previous unrecorded run.
+  - Compared to an informal/unrecorded run, `ecs_extract_dirty` improved by 3.17%.
+  - Compared to an informal/unrecorded run, `tick_scheduler_step` improved by 2.08%.
 
 ## Conclusion & Action Items
 - [x] Establish this run as the official Phase 1 Performance Baseline.

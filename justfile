@@ -1,7 +1,7 @@
 # Run fast quality gate checks (fmt, clippy, test, security, docs-check)
 
 [group('check')]
-check: fmt clippy test security docs-check
+check: fmt clippy test security docs-check validate-gate
 
 # Run ALL CI-equivalent checks (fast + docs-strict, udeps)
 
@@ -147,6 +147,11 @@ docs-check:
     python3 scripts/check_links.py
     python3 scripts/check_branding.py
     uvx codespell
+
+# Validate the quality gate against the latest benchmark report
+[group('check')]
+validate-gate:
+    python3 scripts/validate_quality_gate.py
 
 # Build documentation (mirrors the CI job — warnings are errors)
 
