@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.8.0] - 2026-04-23
+
+### 🚀 Features
+
+- Sync with protocol v0.2.13 and implement replication batching
+
+### 🐛 Bug Fixes
+
+- *(engine)* Handle inbound replication batches and update tests for multi-thread runtime
+- Resolve clippy warnings and stabilize integration tests with multi-thread runtime
+- *(server)* Stabilize fragmentation pipeline and integration tests
+
+### 🚜 Refactor
+
+- Define AuthService trait and implement session verification logic in AuthServiceImpl
 ## [0.7.0] - 2026-04-22
 
 ### 🚀 Features
