@@ -25,6 +25,7 @@ use rusty_paseto::prelude::{
 };
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
+use thiserror::Error;
 use tonic::{Request, Response, Status};
 use tracing::warn;
 use ulid::Ulid;
@@ -32,6 +33,48 @@ use ulid::Ulid;
 pub mod email;
 pub mod google;
 pub mod rate_limit;
+
+/// Details of a verified session.
+#[derive(Debug, Clone)]
+pub struct VerifiedSession {
+    /// The stable identifier for the player.
+    pub player_id: String,
+    /// The unique identifier for this session.
+    pub jti: String,
+}
+
+/// Errors that can occur during authentication or session verification.
+#[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("Invalid session token")]
+    InvalidToken,
+    #[error("Session missing jti claim")]
+    MissingJti,
+    #[error("Session missing sub claim")]
+    MissingSub,
+    #[error("Session revoked or expired")]
+    SessionExpired,
+    #[error("Authentication rate limit exceeded: {0}")]
+    RateLimitExceeded(String),
+}
+
+impl From<AuthError> for tonic::Status {
+    fn from(err: AuthError) -> Self {
+        match err {
+            AuthError::RateLimitExceeded(msg) => Status::resource_exhausted(msg),
+            _ => Status::unauthenticated(err.to_string()),
+        }
+    }
+}
+
+/// Core trait for session verification and management.
+pub trait AuthSessionVerifier: std::fmt::Debug + Send + Sync + 'static {
+    /// Verifies a session token and returns the verified session details.
+    fn verify_session(&self, token: &str, tick: Option<u64>) -> Result<VerifiedSession, AuthError>;
+
+    /// Checks if a session JTI is still authorized.
+    fn is_session_authorized(&self, jti: &str, tick: Option<u64>) -> bool;
+}
 
 use email::EmailSender;
 use google::GoogleOidcClient;
@@ -157,27 +200,7 @@ impl AuthServiceImpl {
 
     #[must_use]
     pub fn is_authorized(&self, token: &str) -> bool {
-        self.validate_and_get_jti(token, None).is_some()
-    }
-
-    /// Validates a session token and returns the JTI if authorized.
-    #[must_use]
-    pub fn validate_and_get_jti(&self, token: &str, tick: Option<u64>) -> Option<String> {
-        let t0 = std::time::Instant::now();
-        let claims = PasetoParser::<V4, Local>::default()
-            .parse(token, &self.session_key)
-            .ok()?;
-
-        let jti = claims.get("jti").and_then(|v| v.as_str())?;
-
-        let result = if self.is_session_authorized(jti, tick) {
-            Some(jti.to_string())
-        } else {
-            None
-        };
-        metrics::histogram!("aetheris_auth_validation_duration_seconds")
-            .record(t0.elapsed().as_secs_f64());
-        result
+        AuthSessionVerifier::verify_session(self, token, None).is_ok()
     }
 
     /// Validates a session by JTI, checking for revocation and enforcing 1h sliding idle window.
@@ -242,6 +265,36 @@ impl AuthServiceImpl {
         self.session_activity.insert(jti, iat.timestamp());
 
         Ok((token, exp.timestamp_millis() as u64))
+    }
+}
+
+impl AuthSessionVerifier for AuthServiceImpl {
+    fn verify_session(&self, token: &str, tick: Option<u64>) -> Result<VerifiedSession, AuthError> {
+        let claims = PasetoParser::<V4, Local>::default()
+            .parse(token, &self.session_key)
+            .map_err(|_| AuthError::InvalidToken)?;
+
+        let jti = claims
+            .get("jti")
+            .and_then(|v| v.as_str())
+            .ok_or(AuthError::MissingJti)?;
+        let sub = claims
+            .get("sub")
+            .and_then(|v| v.as_str())
+            .ok_or(AuthError::MissingSub)?;
+
+        if self.is_session_authorized(jti, tick) {
+            Ok(VerifiedSession {
+                player_id: sub.to_string(),
+                jti: jti.to_string(),
+            })
+        } else {
+            Err(AuthError::SessionExpired)
+        }
+    }
+
+    fn is_session_authorized(&self, jti: &str, _tick: Option<u64>) -> bool {
+        self.session_activity.contains_key(jti)
     }
 }
 

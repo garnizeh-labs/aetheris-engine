@@ -2,7 +2,6 @@ use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
 use aetheris_protocol::matchmaking::v1::matchmaking_service_server::MatchmakingServiceServer;
 use aetheris_protocol::telemetry::v1::telemetry_service_server::TelemetryServiceServer;
 use aetheris_server::{
-    TickScheduler,
     auth::AuthServiceImpl,
     auth::email::{EmailSender, LettreSmtpEmailSender, LogEmailSender, ResendEmailSender},
     config::ServerConfig,
@@ -24,6 +23,8 @@ use aetheris_encoder_serde::SerdeEncoder;
 #[cfg(feature = "phase1")]
 use aetheris_protocol::traits::WorldState;
 use aetheris_server::MultiTransport;
+#[cfg(feature = "phase1")]
+use aetheris_server::TickScheduler;
 #[cfg(feature = "phase1")]
 use aetheris_transport_renet::RenetTransport;
 #[cfg(feature = "phase1")]
@@ -246,47 +247,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             world.register_replicator(descriptor.replicator.clone());
         }
 
-        let encoder = Arc::new(SerdeEncoder::new());
-        let transport = Arc::new(tokio::sync::RwLock::new(transport));
-        let world = Arc::new(std::sync::Mutex::new(world));
+        let encoder = SerdeEncoder::new();
 
         let mut scheduler = TickScheduler::new(
-            u32::try_from(tick_rate).unwrap_or(60),
-            auth_service.clone(),
+            tick_rate,
+            auth_service.clone() as Arc<dyn aetheris_server::auth::AuthSessionVerifier>,
             encode_pool,
         );
         let shutdown_clone = shutdown_tx.subscribe();
 
         let scheduler_handle = tokio::spawn(async move {
             scheduler
-                .run(transport, world, encoder, shutdown_clone)
+                .run(
+                    Box::new(transport),
+                    Box::new(world),
+                    Box::new(encoder),
+                    shutdown_clone,
+                )
                 .await;
         });
 
         let shutdown_auth_tx = shutdown_tx.clone();
-        tokio::spawn(async move {
-            #[cfg(unix)]
-            {
-                use tokio::signal::unix::{SignalKind, signal};
-                let mut sigterm =
-                    signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-                let mut sigint =
-                    signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+        use tracing::Instrument;
+        tokio::spawn(
+            async move {
+                #[cfg(unix)]
+                {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut sigterm =
+                        signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                    let mut sigint =
+                        signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
 
-                tokio::select! {
-                    _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
-                    _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                    tokio::select! {
+                        _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
+                        _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                    }
                 }
-            }
 
-            #[cfg(not(unix))]
-            {
-                tokio::signal::ctrl_c().await.ok();
-                tracing::info!("Shutdown signal received, triggering cancellation...");
-            }
+                #[cfg(not(unix))]
+                {
+                    tokio::signal::ctrl_c().await.ok();
+                    tracing::info!("Shutdown signal received, triggering cancellation...");
+                }
 
-            let _ = shutdown_auth_tx.send(());
-        });
+                let _ = shutdown_auth_tx.send(());
+            }
+            .instrument(tracing::info_span!("shutdown_watcher")),
+        );
 
         tracing::info!(
             "Aetheris Game Server (WebTransport) listening on {}",
@@ -335,7 +343,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let router = register_services(
             builder,
-            (*auth_service).clone(),
+            auth_service,
             matchmaking_service,
             telemetry_service,
         );
@@ -353,29 +361,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "phase1"))]
     {
         let shutdown_fallback_tx = shutdown_tx.clone();
-        tokio::spawn(async move {
-            #[cfg(unix)]
-            {
-                use tokio::signal::unix::{SignalKind, signal};
-                let mut sigterm =
-                    signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-                let mut sigint =
-                    signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+        use tracing::Instrument;
+        tokio::spawn(
+            async move {
+                #[cfg(unix)]
+                {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut sigterm =
+                        signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                    let mut sigint =
+                        signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
 
-                tokio::select! {
-                    _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
-                    _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                    tokio::select! {
+                        _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
+                        _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                    }
                 }
-            }
 
-            #[cfg(not(unix))]
-            {
-                tokio::signal::ctrl_c().await.ok();
-                tracing::info!("Shutdown signal received, triggering cancellation...");
-            }
+                #[cfg(not(unix))]
+                {
+                    tokio::signal::ctrl_c().await.ok();
+                    tracing::info!("Shutdown signal received, triggering cancellation...");
+                }
 
-            let _ = shutdown_fallback_tx.send(());
-        });
+                let _ = shutdown_fallback_tx.send(());
+            }
+            .instrument(tracing::info_span!("shutdown_watcher_fallback")),
+        );
 
         let cors = if env == "production" {
             CorsLayer::new().allow_origin(
@@ -455,12 +467,12 @@ async fn build_tls_config(cert_path: &str, key_path: &str) -> Result<ServerTlsCo
 
 fn register_services<L: Clone>(
     mut builder: Server<L>,
-    auth_service: AuthServiceImpl,
+    auth_service: Arc<AuthServiceImpl>,
     matchmaking_service: MatchmakingServiceImpl,
     telemetry_service: AetherisTelemetryService,
 ) -> tonic::transport::server::Router<L> {
     builder
-        .add_service(AuthServiceServer::new(auth_service))
+        .add_service(AuthServiceServer::new((*auth_service).clone()))
         .add_service(MatchmakingServiceServer::new(matchmaking_service))
         .add_service(TelemetryServiceServer::new(telemetry_service))
 }

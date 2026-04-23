@@ -71,15 +71,14 @@ Aetheris separates concerns into four orthogonal subsystems. Each subsystem is d
 The game loop itself is a fixed-timestep tick. On every tick:
 
 1. **Poll** — `GameTransport::poll_events()` drains all inbound network events.
-2. **Authorize** — `InputCommandReplicator` enforces monotonically increasing client ticks (anti-replay).
-3. **Apply** — `WorldState::apply_updates()` performs the ownership gate and injects validated component updates and inputs into the ECS.
-4. **Simulate** — The ECS runs authoritative systems (e.g., Newtonian physics, AI).
-5. **Extract** — `WorldState::extract_deltas()` produces `ReplicationEvent`s for all changed components.
-6. **Encode & Send** — The `ChannelClassifier` assigns each delta to a [Priority Channel](PRIORITY_CHANNELS_DESIGN.md); the `Encoder` and `GameTransport` dispatch P0→P5 using a **Rayon-parallelized pipeline** to maximize encoding throughput. This stage bridges synchronous encoding with asynchronous transport via `tokio::runtime::Handle` injection. Priority shedding remains active under congestion.
+2. **Apply** — `WorldState::apply_updates()` performs the ownership gate and injects validated component updates and inputs into the ECS. This stage also handles periodic session validation and StartSession commands.
+3. **Simulate** — The ECS runs authoritative systems (e.g., Newtonian physics, AI).
+4. **Extract** — `WorldState::extract_deltas()` produces `ReplicationEvent`s for all changed components.
+5. **Encode & Send** — The `ChannelClassifier` assigns each delta to a [Priority Channel](PRIORITY_CHANNELS_DESIGN.md); the `Encoder` and `GameTransport` dispatch P0→P5, shedding low-priority channels under congestion. This stage offloads serialization to a parallel thread pool and enqueues messages to a non-blocking outbound sender task.
 
 Priority Channels are developer-configurable via the `ChannelRegistry` builder API (see [PRIORITY_CHANNELS_DESIGN.md §3](PRIORITY_CHANNELS_DESIGN.md#3-channel-registry--developer-configurable-channels)). Games define N channels at startup; the engine provides a default 6-channel configuration.
 
-This six-stage pipeline is the heartbeat of the engine. Every architectural decision below exists to make each stage faster, smaller, and more predictable.
+This five-stage pipeline is the heartbeat of the engine. Every architectural decision below exists to make each stage faster, smaller, and more predictable.
 
 > **Canonical References:** Stage 3 input processing is detailed in [INPUT_PIPELINE_DESIGN.md](https://github.com/garnizeh-labs/aetheris-client/blob/main/docs/INPUT_PIPELINE_DESIGN.md). Stage 5 interest filtering is detailed in [INTEREST_MANAGEMENT_DESIGN.md](INTEREST_MANAGEMENT_DESIGN.md) and [SPATIAL_PARTITIONING_DESIGN.md](SPATIAL_PARTITIONING_DESIGN.md).
 
@@ -695,4 +694,3 @@ This log records architectural decisions, their rationale, and what would cause 
 | D10 | Feature flags for phase selection | Compile-time selection eliminates all runtime dispatch overhead. | Simultaneous Phase 1 + Phase 3 operation is needed for A/B testing. Switch to runtime `Box<dyn Trait>`. | 2026-04-15 |
 | D11 | Priority Channels as first-class pipeline feature | Bidirectional priority processing (Stage 1 ingest + Stage 5 dispatch) with developer-configurable channels via `ChannelRegistry`. See [PRIORITY_CHANNELS_DESIGN.md](PRIORITY_CHANNELS_DESIGN.md). | If channel classification overhead exceeds 0.5ms per tick. | 2026-04-15 |
 | D12 | Accept renet/netcode handshake as Time-to-Possess floor | Profiling (run `20260422_101553`) confirmed server-side spawn latency is ~0 ms after A-06 coalescing fix. The remaining ≈6 ms between measured P99 (106 ms) and stretch target (≤100 ms) is caused by renet/netcode UDP handshake round-trips that occur after gRPC auth completes and before `client.is_connected()`. This is not reducible without replacing the Phase 1 transport. `aetheris_session_start_latency_seconds` histogram is wired to detect any server-side regression. | Phase 3 replaces `RenetTransport` with `QuinnTransport`; re-evaluate stretch target then. | 2026-04-22 |
-| D13 | Parallel Replication Dispatch with Reactor Bridge | Stage 5/6 encoding is CPU-intensive. Using `rayon` for parallel per-client batching prevents serialization from blocking the next tick. The sync Rayon threads are bridged to the async Tokio reactor via explicit `tokio::runtime::Handle` injection, ensuring safe `tokio::spawn` calls for outbound reliable packets. | Per-client encoding cost becomes trivial (e.g. Phase 3 bit-packer), or Rayon scheduling overhead exceeds 0.2ms per tick. | 2026-04-22 |

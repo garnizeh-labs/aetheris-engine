@@ -31,11 +31,11 @@ version = "0.7.0"
 
 [[package]]
 name = "aetheris-encoder-bitpack"
-version = "0.2.13"
+version = "0.2.15"
 
 [[package]]
 name = "aetheris-encoder-serde"
-version = "0.2.13"
+version = "0.2.15"
 dependencies = [
  "aetheris-protocol",
  "metrics",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "aetheris-protocol"
-version = "0.2.13"
+version = "0.2.15"
 dependencies = [
  "async-trait",
  "prost",
@@ -91,13 +91,13 @@ dependencies = [
  "rand 0.10.1",
  "rayon",
  "reqwest 0.13.2",
- "rmp-serde",
  "rustls",
  "rusty_paseto",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "subtle",
+ "thiserror 1.0.69",
  "tikv-jemalloc-ctl",
  "tikv-jemallocator",
  "tokio",
