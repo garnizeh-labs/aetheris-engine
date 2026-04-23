@@ -4,6 +4,7 @@ use aetheris_ecs_bevy::BevyWorldAdapter;
 use bevy_ecs::prelude::World;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 use aetheris_protocol::auth::v1::auth_service_client::AuthServiceClient;
 use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
@@ -365,7 +366,7 @@ async fn test_client_connect_and_replication() {
         });
     }
 
-    let mut scheduler = TickScheduler::new(100, auth_service, single_thread_encode_pool());
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -429,7 +430,7 @@ async fn test_full_integration_suite() {
 
     let nid = state.world.lock().unwrap().spawn_networked();
 
-    let mut scheduler = TickScheduler::new(100, auth_service, single_thread_encode_pool());
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -508,7 +509,7 @@ async fn test_consecutive_dropped_packets_interpolation() {
 
     let nid = state.world.lock().unwrap().spawn_networked();
 
-    let mut scheduler = TickScheduler::new(100, auth_service, single_thread_encode_pool()); // 10ms ticks
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool()); // 10ms ticks
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -586,7 +587,7 @@ async fn test_wasm_mtu_handling_simulation() {
     );
     inject_auth_handshake(&state.transport, cid, &auth_service).await;
 
-    let mut scheduler = TickScheduler::new(100, auth_service, single_thread_encode_pool());
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -624,7 +625,6 @@ async fn test_large_delta_fragmentation() {
         world: Arc::new(Mutex::new(MockWorldState::new())),
         encoder: Arc::new(MockEncoder::new()),
     };
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid = ClientId(1);
 
     state
@@ -701,6 +701,72 @@ async fn test_large_delta_fragmentation() {
     }
 
     {
+        {
+            let w = state.world.lock().unwrap();
+            w.queue_delta(ReplicationEvent {
+                network_id: nid,
+                component_kind: ComponentKind(99),
+                payload: large_payload.clone(),
+                tick: 1,
+            });
+        }
+    }
+
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
+    let transport_box: Box<dyn GameTransport> = Box::new(TransportRef(state.clone()));
+    let transport_lock = RwLock::new(transport_box);
+    let mut world_box: Box<dyn WorldState> = Box::new(WorldRef(state.clone()));
+    let loop_encoder = LargeEncoderRef {
+        real: real_encoder.clone(),
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(2048);
+    scheduler.set_outbound_tx(tx);
+
+    let transport_proxy = state.transport.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            use aetheris_server::tick::OutboundMessage;
+            match msg {
+                OutboundMessage::Reliable { client_id, data } => {
+                    transport_proxy
+                        .lock()
+                        .await
+                        .send_reliable(client_id, &data)
+                        .await
+                        .unwrap();
+                }
+                OutboundMessage::Unreliable { client_id, data } => {
+                    transport_proxy
+                        .lock()
+                        .await
+                        .send_unreliable(client_id, &data)
+                        .await
+                        .unwrap();
+                }
+                OutboundMessage::BroadcastUnreliable { data } => {
+                    transport_proxy
+                        .lock()
+                        .await
+                        .broadcast_unreliable(&data)
+                        .await
+                        .unwrap();
+                }
+            }
+        }
+    });
+
+    // Connect client
+    state.transport.lock().await.connect(cid);
+
+    // 1. Auth Handshake (requires one tick to process)
+    inject_auth_handshake(&state.transport, cid, &auth_service).await;
+    scheduler
+        .tick_step(&transport_lock, &mut *world_box, &loop_encoder)
+        .await;
+
+    // 2. Queue large delta
+    {
         let w = state.world.lock().unwrap();
         w.queue_delta(ReplicationEvent {
             network_id: nid,
@@ -710,20 +776,10 @@ async fn test_large_delta_fragmentation() {
         });
     }
 
-    let mut scheduler = TickScheduler::new(100, auth_service, single_thread_encode_pool());
-    let loop_transport = Box::new(TransportRef(state.clone()));
-    let loop_world = Box::new(WorldRef(state.clone()));
-    let loop_encoder = Box::new(LargeEncoderRef {
-        real: real_encoder.clone(),
-    });
-
-    let handle = tokio::spawn(async move {
-        scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
-            .await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    // 3. Process delta (requires another tick)
+    scheduler
+        .tick_step(&transport_lock, &mut *world_box, &loop_encoder)
+        .await;
 
     // Verify fragments were sent
     let packets = state.transport.lock().await.take_unreliable(cid);
@@ -752,6 +808,9 @@ async fn test_large_delta_fragmentation() {
             });
     }
 
+    scheduler
+        .tick_step(&transport_lock, &mut *world_box, &loop_encoder)
+        .await;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Verify the world applied the reassembled update
@@ -769,13 +828,6 @@ async fn test_large_delta_fragmentation() {
     });
 
     assert!(found, "Reassembled delta was not applied to the world");
-
-    handle.abort();
-    match handle.await {
-        Ok(()) => {}
-        Err(e) if e.is_cancelled() => {}
-        Err(e) => panic!("Scheduler task panicked: {e:?}"),
-    }
 }
 
 /// Helper to provide a single-threaded Rayon pool for tests to avoid thread exhaustion.

@@ -21,7 +21,7 @@ pub enum OutboundMessage {
     BroadcastUnreliable { data: Vec<u8> },
 }
 
-/// Targets for a replication delta.
+#[derive(Debug, Clone)]
 pub enum DeltaTargets {
     Broadcast,
     Recipients(Vec<ClientId>),
@@ -64,6 +64,11 @@ impl TickScheduler {
             encode_pool,
             outbound_tx: None,
         }
+    }
+
+    /// Sets the outbound channel for messages. Used in tests or custom loops.
+    pub fn set_outbound_tx(&mut self, tx: tokio::sync::mpsc::Sender<OutboundMessage>) {
+        self.outbound_tx = Some(tx);
     }
 
     /// Runs the infinite game loop until the shutdown token is cancelled.
@@ -160,6 +165,7 @@ impl TickScheduler {
         world: &mut dyn WorldState,
         encoder: &dyn Encoder,
     ) {
+        let tick_start = Instant::now();
         let tick = self.current_tick;
         self.current_tick += 1;
 
@@ -333,27 +339,30 @@ impl TickScheduler {
                     match encoder.decode_event(&raw_data) {
                         Ok(NetworkEvent::Auth { session_token }) => {
                             tracing::info!(?client_id, "Auth message received");
-                            if let Ok(session) =
-                                self.auth_service.verify_session(&session_token, Some(tick))
-                            {
-                                tracing::info!(?client_id, "Client authenticated successfully");
+                            match self.auth_service.verify_session(&session_token, Some(tick)) {
+                                Ok(session) => {
+                                    tracing::info!(?client_id, "Client authenticated successfully");
 
-                                self.authenticated_clients
-                                    .insert(client_id, (session.jti, None));
-                                // Record when auth completed so we can measure server-side
-                                // possession latency (A-08 profiling metric).
-                                self.auth_timestamps.insert(client_id, Instant::now());
+                                    self.authenticated_clients
+                                        .insert(client_id, (session.jti, None));
+                                    // Record when auth completed so we can measure server-side
+                                    // possession latency (A-08 profiling metric).
+                                    self.auth_timestamps.insert(client_id, Instant::now());
 
-                                tracing::info!(
-                                    ?client_id,
-                                    "[Auth] Client authenticated — waiting for StartSession to spawn ship"
-                                );
-                                continue;
+                                    tracing::info!(
+                                        ?client_id,
+                                        "[Auth] Client authenticated — waiting for StartSession to spawn ship"
+                                    );
+                                    continue;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        ?client_id,
+                                        error = ?e,
+                                        "Client failed authentication"
+                                    );
+                                }
                             }
-                            tracing::warn!(
-                                ?client_id,
-                                "Client failed authentication (token rejected)"
-                            );
                         }
                         Ok(other) => {
                             tracing::warn!(
@@ -615,8 +624,9 @@ impl TickScheduler {
         // Stage 4: Extract
         let t4 = Instant::now();
         let (deltas, reliable_events) = {
-            let _span = debug_span!("stage4_extract").entered();
-            (world.extract_deltas(), world.extract_reliable_events())
+            let ds = world.extract_deltas();
+            let rs = world.extract_reliable_events();
+            (ds, rs)
         };
         // Reset ECS change-detection *after* extraction so simulate()'s mutations are visible.
         world.post_extract();
@@ -639,8 +649,13 @@ impl TickScheduler {
                 let network_event = wire_event.clone().into_network_event(id);
                 match encoder.encode_event(&network_event) {
                     Ok(data) => {
-                        if let Err(e) = transport.send_reliable(id, &data).await {
-                            error!(error = ?e, client_id = ?id, "Failed to send reliable event");
+                        if let Some(tx) = &self.outbound_tx {
+                            let _ = tx
+                                .send(OutboundMessage::Reliable {
+                                    client_id: id,
+                                    data,
+                                })
+                                .await;
                         }
                     }
                     Err(e) => {
@@ -690,8 +705,9 @@ impl TickScheduler {
                 }
             }
 
+            let max_size = encoder.max_encoded_size();
             thread_local! {
-                static SCRATCH_BUFFER: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
+                static SCRATCH_BUFFER: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
             }
 
             // A-04: Parallel Stage 5 Encode
@@ -716,8 +732,23 @@ impl TickScheduler {
                             // Only a single final allocation (to_vec) is performed to return data to main thread.
                             SCRATCH_BUFFER.with(|buf| {
                                 let mut b = buf.borrow_mut();
+                                if b.len() < max_size {
+                                    b.resize(max_size, 0);
+                                }
                                 match encoder.encode_event_into(&batch_event, &mut b) {
                                     Ok(size) => (client_id, Ok(b[..size].to_vec())),
+                                    Err(
+                                        aetheris_protocol::error::EncodeError::BufferOverflow {
+                                            ..
+                                        },
+                                    ) => {
+                                        // M10105 — Reliable fallback for large batches that exceed scratch buffer.
+                                        // We use the allocating encode_event() here as a safety valve.
+                                        match encoder.encode_event(&batch_event) {
+                                            Ok(data) => (client_id, Ok(data)),
+                                            Err(e) => (client_id, Err(e)),
+                                        }
+                                    }
                                     Err(e) => (client_id, Err(e)),
                                 }
                             })
@@ -758,6 +789,9 @@ impl TickScheduler {
         }
         metrics::histogram!("aetheris_stage_duration_seconds", "stage" => "send")
             .record(t5.elapsed().as_secs_f64());
+
+        metrics::histogram!("aetheris_tick_duration_seconds")
+            .record(tick_start.elapsed().as_secs_f64());
     }
 
     fn get_delta_targets(

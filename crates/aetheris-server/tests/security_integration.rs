@@ -239,7 +239,7 @@ async fn test_entity_hijacking_prevention() {
         adapter
             .world_mut()
             .entity_mut(bevy_ent_b)
-            .insert(MockPos(10));
+            .insert(MockPos(100));
 
         let ent_a = adapter.get_local_id(nid_a).unwrap();
         let bevy_ent_a = bevy_ecs::entity::Entity::from_bits(ent_a.0);
@@ -282,7 +282,7 @@ async fn test_entity_hijacking_prevention() {
         let bevy_ent_b = bevy_ecs::entity::Entity::from_bits(ent_b.0);
         let pos = adapter.world().get::<MockPos>(bevy_ent_b).unwrap();
         assert_eq!(
-            pos.0, 10,
+            pos.0, 100,
             "Security Failure: Client A updated Client B's entity!"
         );
     }
@@ -324,7 +324,7 @@ async fn test_entity_hijacking_prevention() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_grpc_message_size_limit() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_grpc_control_plane_size_limit() -> Result<(), Box<dyn std::error::Error>> {
     use aetheris_protocol::auth::v1::auth_service_client::AuthServiceClient;
     use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
     use std::net::SocketAddr;

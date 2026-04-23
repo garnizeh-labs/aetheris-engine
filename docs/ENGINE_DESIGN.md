@@ -70,11 +70,11 @@ Aetheris separates concerns into four orthogonal subsystems. Each subsystem is d
 
 The game loop itself is a fixed-timestep tick. On every tick:
 
-1. **Poll** — `GameTransport::poll_events()` drains all inbound network events.
-2. **Apply** — `WorldState::apply_updates()` performs the ownership gate and injects validated component updates and inputs into the ECS. This stage also handles periodic session validation and StartSession commands.
-3. **Simulate** — The ECS runs authoritative systems (e.g., Newtonian physics, AI).
-4. **Extract** — `WorldState::extract_deltas()` produces `ReplicationEvent`s for all changed components.
-5. **Encode & Send** — The `ChannelClassifier` assigns each delta to a [Priority Channel](PRIORITY_CHANNELS_DESIGN.md); the `Encoder` and `GameTransport` dispatch P0→P5, shedding low-priority channels under congestion. This stage offloads serialization to a parallel thread pool and enqueues messages to a non-blocking outbound sender task.
+1. **POLL** — `GameTransport::poll_events()` drains all inbound network events.
+2. **APPLY** — `WorldState::apply_updates()` performs the ownership gate and injects validated component updates and inputs into the ECS. This stage also handles periodic session validation and StartSession commands.
+3. **SIMULATE** — The ECS runs authoritative systems (e.g., Newtonian physics, AI).
+4. **EXTRACT** — `WorldState::extract_deltas()` produces `ReplicationEvent`s for all changed components.
+5. **SEND** — The `ChannelClassifier`, `Encoder` and `GameTransport` handle prioritization/parallel encoding and tokio handle injection; deltas are dispatched to [Priority Channels](PRIORITY_CHANNELS_DESIGN.md) P0→P5, shedding low-priority channels under congestion. This stage offloads serialization to a parallel thread pool and enqueues messages to a non-blocking outbound sender task.
 
 Priority Channels are developer-configurable via the `ChannelRegistry` builder API (see [PRIORITY_CHANNELS_DESIGN.md §3](PRIORITY_CHANNELS_DESIGN.md#3-channel-registry--developer-configurable-channels)). Games define N channels at startup; the engine provides a default 6-channel configuration.
 

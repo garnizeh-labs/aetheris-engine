@@ -472,7 +472,7 @@ fn register_services<L: Clone>(
     telemetry_service: AetherisTelemetryService,
 ) -> tonic::transport::server::Router<L> {
     builder
-        .add_service(AuthServiceServer::new((*auth_service).clone()))
+        .add_service(AuthServiceServer::new(auth_service.as_ref().clone()))
         .add_service(MatchmakingServiceServer::new(matchmaking_service))
         .add_service(TelemetryServiceServer::new(telemetry_service))
 }

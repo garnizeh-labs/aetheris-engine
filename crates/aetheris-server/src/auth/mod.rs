@@ -12,7 +12,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait AuthService: Send + Sync {
-    async fn verify_session(&self, token: &str) -> Result<String, String>;
+    async fn verify_session(&self, token: &str) -> Result<VerifiedSession, AuthError>;
 }
 use base64::Engine;
 use blake2::{Blake2b, Digest, digest::consts::U32};
@@ -209,7 +209,7 @@ impl AuthServiceImpl {
     /// if `tick` is provided, activity updates are coalesced to once per 60 ticks (~1s)
     /// to reduce write-lock contention on the session map.
     #[must_use]
-    pub fn is_session_authorized(&self, jti: &str, tick: Option<u64>) -> bool {
+    pub fn is_session_authorized_with_tick(&self, jti: &str, tick: Option<u64>) -> bool {
         // Optimistic Read: Check for existence and idle timeout without write lock first.
         let (needs_update, now_ts) = if let Some(activity) = self.session_activity.get(jti) {
             let now = Utc::now().timestamp();
@@ -261,7 +261,7 @@ impl AuthServiceImpl {
             .build(&self.session_key)
             .map_err(|e| Status::internal(format!("{e:?}")))?;
 
-        // Initialize session activity (store seconds, matched by is_session_authorized)
+        // Initialize session activity (store seconds, matched by is_session_authorized_with_tick)
         self.session_activity.insert(jti, iat.timestamp());
 
         Ok((token, exp.timestamp_millis() as u64))
@@ -283,7 +283,7 @@ impl AuthSessionVerifier for AuthServiceImpl {
             .and_then(|v| v.as_str())
             .ok_or(AuthError::MissingSub)?;
 
-        if self.is_session_authorized(jti, tick) {
+        if self.is_session_authorized_with_tick(jti, tick) {
             Ok(VerifiedSession {
                 player_id: sub.to_string(),
                 jti: jti.to_string(),
@@ -293,32 +293,15 @@ impl AuthSessionVerifier for AuthServiceImpl {
         }
     }
 
-    fn is_session_authorized(&self, jti: &str, _tick: Option<u64>) -> bool {
-        self.session_activity.contains_key(jti)
+    fn is_session_authorized(&self, jti: &str, tick: Option<u64>) -> bool {
+        self.is_session_authorized_with_tick(jti, tick)
     }
 }
 
 #[async_trait]
 impl AuthService for AuthServiceImpl {
-    async fn verify_session(&self, token: &str) -> Result<String, String> {
-        let claims = PasetoParser::<V4, Local>::default()
-            .parse(token, &self.session_key)
-            .map_err(|e| format!("Token parse error: {e:?}"))?;
-
-        let jti = claims
-            .get("jti")
-            .and_then(|v| v.as_str())
-            .ok_or("Missing JTI")?;
-        let sub = claims
-            .get("sub")
-            .and_then(|v| v.as_str())
-            .ok_or("Missing SUB")?;
-
-        if self.is_session_authorized(jti, None) {
-            Ok(sub.to_string())
-        } else {
-            Err("Session revoked or expired".to_string())
-        }
+    async fn verify_session(&self, token: &str) -> Result<VerifiedSession, AuthError> {
+        AuthSessionVerifier::verify_session(self, token, None)
     }
 }
 
@@ -595,7 +578,7 @@ impl GrpcAuthService for AuthServiceImpl {
             return Err(Status::unauthenticated("Token missing sub"));
         };
 
-        if !self.is_session_authorized(jti, None) {
+        if !self.is_session_authorized_with_tick(jti, None) {
             return Err(Status::unauthenticated("Session revoked or expired"));
         }
 
