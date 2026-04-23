@@ -1,7 +1,7 @@
 # Run fast quality gate checks (fmt, clippy, test, security, docs-check)
 
 [group('check')]
-check: fmt clippy test security docs-check
+check: fmt clippy test security docs-check validate-gate
 
 # Run ALL CI-equivalent checks (fast + docs-strict, udeps)
 
@@ -148,6 +148,11 @@ docs-check:
     python3 scripts/check_branding.py
     uvx codespell
 
+# Validate the quality gate against the latest benchmark report
+[group('check')]
+validate-gate:
+    python3 scripts/validate_quality_gate.py
+
 # Build documentation (mirrors the CI job — warnings are errors)
 
 [group('doc')]
@@ -231,3 +236,54 @@ semver:
 logs:
     @mkdir -p logs
     tail -f logs/*.log || true
+
+# Run all microbenchmarks
+[group('bench')]
+bench:
+    cargo bench --workspace
+
+# Run benchmarks and seal baseline with a tag
+[group('bench')]
+bench-baseline tag:
+    cargo bench --workspace -- --save-baseline {{ tag }}
+
+
+# Record golden file for determinism validation (VS-07 §3.3)
+[group('bench')]
+record-golden:
+    AETHERIS_TICK_RATE=60 AETHERIS_RECORD_GOLDEN=600 AETHERIS_AUTH_BYPASS=1 AETHERIS_METRICS_PORT=9001 AETHERIS_GRPC_ADDR=127.0.0.1:50052 AETHERIS_TELEMETRY_HTTP_PORT=50056 AETHERIS_RENET_ADDR=0.0.0.0:5001 AETHERIS_WT_ADDR=[::]:4434 cargo run -p aetheris-server --features phase1 -- --
+
+# Run benchmarks and record results in benchmarks/<timestamp>
+[group('bench')]
+bench-record:
+    #!/usr/bin/env bash
+    set -e
+    RUN_ID=$(date +%Y-%m-%d_%H%M)
+    RESULTS_DIR="benchmarks/${RUN_ID}"
+    mkdir -p "${RESULTS_DIR}"
+    echo "Running benchmarks..."
+    cargo bench --workspace
+    echo "Copying results to ${RESULTS_DIR}..."
+    cp -r target/criterion "${RESULTS_DIR}/criterion"
+    
+    echo "Generating REPORT.md scaffold..."
+    TEMP_REPORT=$(mktemp)
+    echo "# Performance Analysis Report - ${RUN_ID}" > "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "## Executive Summary" >> "${TEMP_REPORT}"
+    echo "- **Overall Status**: PENDING" >> "${TEMP_REPORT}"
+    echo "- **Key Changes**: Microbenchmarks for ${RUN_ID}" >> "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "## 📊 Benchmark Results" >> "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "| Metric | Measured Value | Budget | Status |" >> "${TEMP_REPORT}"
+    echo "| :--- | :--- | :--- | :--- |" >> "${TEMP_REPORT}"
+    echo "| **ECS Extract (1k Entities)** | \`TBD\` | < 2.5 ms | ⏳ |" >> "${TEMP_REPORT}"
+    echo "| **Tick Scheduler Overhead** | \`TBD\` | < 50 µs | ⏳ |" >> "${TEMP_REPORT}"
+    echo "| **MessagePack Encoding** | \`TBD\` | < 5.0 µs | ⏳ |" >> "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "## 🔍 Detailed Analysis" >> "${TEMP_REPORT}"
+    echo "- **Observation**: Results in \`criterion/\` directory." >> "${TEMP_REPORT}"
+    mv "${TEMP_REPORT}" "${RESULTS_DIR}/REPORT.md"
+    
+    echo "Done. Results persisted in: ${RESULTS_DIR}"

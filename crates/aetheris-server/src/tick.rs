@@ -43,6 +43,8 @@ pub struct TickScheduler {
     next_message_id: u32,
     encode_pool: Arc<rayon::ThreadPool>,
     outbound_tx: Option<mpsc::Sender<OutboundMessage>>,
+    recording_ticks: Option<u64>,
+    golden_hashes: Vec<u64>,
 }
 
 impl TickScheduler {
@@ -63,6 +65,10 @@ impl TickScheduler {
             next_message_id: 1,
             encode_pool,
             outbound_tx: None,
+            recording_ticks: std::env::var("AETHERIS_RECORD_GOLDEN")
+                .ok()
+                .and_then(|v| v.parse().ok()),
+            golden_hashes: Vec::new(),
         }
     }
 
@@ -176,6 +182,11 @@ impl TickScheduler {
         // Without this, newly spawned entities share the same tick as `last_extraction_tick`
         // and are silently skipped by `extract_deltas`, causing them to never be replicated.
         world.advance_tick();
+
+        if tick == 0 && self.recording_ticks.is_some() {
+            tracing::info!("Recording mode: Spawning 100 entities for determinism test");
+            world.stress_test(100, true);
+        }
 
         // Stage 1: Poll
         let t1 = Instant::now();
@@ -625,6 +636,30 @@ impl TickScheduler {
         let t4 = Instant::now();
         let (deltas, reliable_events) = {
             let ds = world.extract_deltas();
+
+            // VS-07 §3.3: Golden File Recording
+            if let Some(limit) = self.recording_ticks.filter(|&l| tick < l) {
+                let hash = world.state_hash();
+                self.golden_hashes.push(hash);
+
+                if tick + 1 == limit {
+                    tracing::info!(
+                        limit,
+                        "Golden recording complete. Saving to golden_600ticks.bin"
+                    );
+                    let data: Vec<u8> = self
+                        .golden_hashes
+                        .iter()
+                        .flat_map(|h| h.to_le_bytes())
+                        .collect();
+                    if let Err(e) = std::fs::write("golden_600ticks.bin", data) {
+                        tracing::error!(error = ?e, "Failed to write golden file");
+                    } else {
+                        tracing::info!("Successfully saved golden_600ticks.bin");
+                        std::process::exit(0);
+                    }
+                }
+            }
             let rs = world.extract_reliable_events();
             (ds, rs)
         };

@@ -67,6 +67,21 @@ just --list
 2. **Simulation Abstraction**: A trait-driven bridge allowing the engine to drive any ECS (Bevy or custom) without modifying networking logic.
 3. **Hardened Integrity**: Every input is validated, every state is replicated, and every vital is protected against division-by-zero or out-of-bounds corruption.
 
+## 🚀 Performance & Determinism (VS-07)
+
+The engine implements strict performance and architectural integrity contracts:
+
+### Microbenchmarks & Zero-Alloc
+We use `criterion` for sub-microsecond precision and `alloc_counter` to enforce a **Zero Heap Allocation** policy in hot-path pipelines.
+- **Run all benchmarks:** `just bench`
+- **Zero-Alloc Assertion:** The `ecs_extract_dirty` benchmark will `panic!` if any heap allocation occurs during extraction.
+- **Warmup:** Benchmarks include a mandatory 100-tick warmup to stabilize Bevy query states before measurement.
+
+### Determinism Validation (Golden Files)
+To prevent drift across platforms or versions, we use **Golden File Recording**:
+1. **Record:** `just record-golden` (Captures 600 ticks of world state hashes to `golden_600ticks.bin`).
+2. **Verify:** `rtk cargo test --test determinism --features phase1` (Replays simulation and verifies hashes bit-for-bit).
+
 ---
 
 License: MIT / Apache-2.0

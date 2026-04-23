@@ -56,7 +56,7 @@ lettre = { version = "0.11", default-features = false, features = [
     "smtp-transport",
     "builder",
 ] }
-thiserror = "1.0"
+thiserror = "2.0.18"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -81,6 +81,13 @@ aetheris-transport-quinn = { workspace = true, optional = true }
 [dev-dependencies]
 aetheris-protocol = { workspace = true, features = ["test-utils"] }
 rand.workspace = true
+criterion = { version = "0.8.2", features = ["async_tokio"] }
+alloc_counter = "0.0.4"
+rmp-serde = { workspace = true }
+
+[[bench]]
+name = "tick_pipeline"
+harness = false
 
 [features]
 default = ["phase1"]

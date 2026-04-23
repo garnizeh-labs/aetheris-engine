@@ -171,6 +171,9 @@ async fn test_entity_hijacking_prevention() {
         fn clear_world(&mut self) {
             self.adapter.lock().unwrap().clear_world();
         }
+        fn state_hash(&self) -> u64 {
+            self.adapter.lock().unwrap().state_hash()
+        }
     }
 
     let shared_adapter = Arc::new(Mutex::new(adapter));
