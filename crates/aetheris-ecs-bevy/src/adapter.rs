@@ -15,7 +15,7 @@ use crate::components::{
     LatestInput, PhysicsBody, RoomBoundsComponent, RoomDefinitionComponent,
     RoomMembershipComponent, ShipClassComponent, ShipStatsComponent, TransformComponent, Velocity,
 };
-use crate::physics_consts::{DEFAULT_DRAG, MASS_PER_ORE};
+use crate::physics_consts::MASS_PER_ORE;
 use crate::registry::BoxedReplicator;
 use aetheris_protocol::types::Transform as ProtocolTransform;
 
@@ -312,19 +312,31 @@ impl WorldState for BevyWorldAdapter {
                         move_y = *y;
                     }
                 }
+                
+                if move_x.abs() > 0.001 || move_y.abs() > 0.001 {
+                    tracing::info!(
+                        ?network_id,
+                        move_x,
+                        move_y,
+                        tick = latest.command.tick,
+                        "[Server Simulate] Received Input"
+                    );
+                }
             }
 
             // 1.3 Calculate acceleration
             let accel_x = move_x * (physics.thrust_force / total_mass);
             let accel_y = move_y * (physics.thrust_force / total_mass);
 
-            if accel_x.abs() > f32::EPSILON || accel_y.abs() > f32::EPSILON {
-                tracing::debug!(
+            if accel_x.abs() > 0.001 || accel_y.abs() > 0.001 {
+                tracing::info!(
                     ?network_id,
                     move_x,
                     move_y,
                     accel_x,
                     accel_y,
+                    vel_x = velocity.dx,
+                    vel_y = velocity.dy,
                     "Applied Acceleration"
                 );
             }
@@ -350,6 +362,44 @@ impl WorldState for BevyWorldAdapter {
             // 1.7 Update transform
             transform.0.x += velocity.dx * dt;
             transform.0.y += velocity.dy * dt;
+
+            // 1.8 Update rotation (M1020 - rotate towards velocity)
+            let speed_sq = velocity.dx * velocity.dx + velocity.dy * velocity.dy;
+            if speed_sq > 0.01 {
+                let target_rotation = velocity.dy.atan2(velocity.dx);
+                let current_rotation = transform.0.rotation;
+
+                // Calculate shortest angular distance
+                let mut delta = target_rotation - current_rotation;
+                while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
+                while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
+
+                let turn_speed = physics.turn_rate.to_radians(); // turn_rate is in deg/s
+                let max_turn = turn_speed * dt;
+
+                if delta.abs() < max_turn {
+                    transform.0.rotation = target_rotation;
+                } else {
+                    transform.0.rotation += delta.signum() * max_turn;
+                }
+            }
+
+            // Diagnostic: Log movement
+            thread_local! {
+                static MOVE_LOG_COUNT: core::cell::Cell<u64> = core::cell::Cell::new(0);
+            }
+            MOVE_LOG_COUNT.with(|count| {
+                let current = count.get();
+                if current % 60 == 0 && speed_sq > 0.001 {
+                    tracing::info!(
+                        ?network_id,
+                        x = transform.0.x,
+                        y = transform.0.y,
+                        "Authoritative Position Update"
+                    );
+                }
+                count.set(current + 1);
+            });
         }
 
         // Room Bounds Enforcement (Stage 3 Simulate)
@@ -656,12 +706,12 @@ impl WorldState for BevyWorldAdapter {
                         energy_regen_per_s: 10,
                     }),
                     PhysicsBody {
-                        base_mass: 50.0,
-                        thrust_force: 500.0, // Restored (prev: 125.0 during debugging)
-                        max_velocity: 30.0,  // Reduced (prev: 60.0)
+                        base_mass: 100.0,
+                        thrust_force: crate::physics_consts::DEFAULT_THRUST_FORCE,
+                        max_velocity: crate::physics_consts::DEFAULT_MAX_VELOCITY,
                         turn_rate: 270.0,
-                        drag: DEFAULT_DRAG,
-                        mass_per_ore: MASS_PER_ORE,
+                        drag: crate::physics_consts::DEFAULT_DRAG,
+                        mass_per_ore: crate::physics_consts::MASS_PER_ORE,
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
@@ -688,11 +738,11 @@ impl WorldState for BevyWorldAdapter {
                         energy_regen_per_s: 20,
                     }),
                     PhysicsBody {
-                        base_mass: 300.0,
-                        thrust_force: 100.0, // Reduced (prev: 200.0)
-                        max_velocity: 20.0,  // Reduced (prev: 40.0)
+                        base_mass: 400.0,
+                        thrust_force: 40000.0,
+                        max_velocity: 60.0,
                         turn_rate: 60.0,
-                        drag: DEFAULT_DRAG,
+                        drag: crate::physics_consts::DEFAULT_DRAG,
                         mass_per_ore: MASS_PER_ORE,
                     },
                     crate::components::CargoHold {
@@ -720,11 +770,11 @@ impl WorldState for BevyWorldAdapter {
                         energy_regen_per_s: 12,
                     }),
                     PhysicsBody {
-                        base_mass: 150.0,
-                        thrust_force: 175.0, // Reduced (prev: 350.0)
-                        max_velocity: 35.0,  // Reduced (prev: 70.0)
+                        base_mass: 200.0,
+                        thrust_force: 25000.0,
+                        max_velocity: 80.0,
                         turn_rate: 150.0,
-                        drag: DEFAULT_DRAG,
+                        drag: crate::physics_consts::DEFAULT_DRAG,
                         mass_per_ore: MASS_PER_ORE,
                     },
                     crate::components::CargoHold {
@@ -850,9 +900,18 @@ impl WorldState for BevyWorldAdapter {
                     max_x: 250.0,
                     max_y: 250.0,
                 }),
-                // The room belongs to itself (or no membership needed for the room itself)
                 RoomMembershipComponent(aetheris_protocol::types::RoomMembership(room_nid)),
             ));
+
+            // VS-06: Spawn some visual reference points (asteroids)
+            // This ensures the player can see they are moving relative to something.
+            for i in 0..10 {
+                let angle = (i as f32) * std::f32::consts::TAU / 10.0;
+                let radius = 20.0;
+                let x = angle.cos() * radius;
+                let y = angle.sin() * radius;
+                self.spawn_kind(5, x, y, 0.0); // 5 = Asteroid
+            }
         }
     }
 

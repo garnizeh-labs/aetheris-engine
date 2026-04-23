@@ -185,7 +185,7 @@ impl ComponentReplicator for InputCommandReplicator {
         // This provides defense-in-depth even if the caller (Adapter) skipped the check.
         let has_owner = world.get::<NetworkOwner>(entity).is_some();
         let has_session = world.get::<SessionShip>(entity).is_some();
-        tracing::debug!(
+        tracing::info!(
             network_id = update.network_id.0,
             has_owner,
             has_session,
@@ -206,7 +206,8 @@ impl ComponentReplicator for InputCommandReplicator {
         if !has_session {
             tracing::warn!(
                 network_id = update.network_id.0,
-                "Rejected InputCommand: Entity is not a session ship"
+                has_owner,
+                "[InputCmd] REJECTED: Entity is not a session ship (missing SessionShip marker)"
             );
             return;
         }
@@ -245,22 +246,33 @@ impl ComponentReplicator for InputCommandReplicator {
                             .last_client_tick
                             .saturating_add(MAX_FORWARD_TICK_JUMP)
                 {
+                    let old_tick = latest.last_client_tick;
                     latest.last_client_tick = command.tick;
                     if command.actions.is_empty() {
-                        tracing::trace!(
+                        tracing::info!(
                             network_id = update.network_id.0,
                             tick = command.tick,
-                            "Applied InputCommand (no actions)"
+                            old_tick,
+                            "[InputCmd] Updated InputCommand (no actions)"
                         );
                     } else {
-                        tracing::trace!(
+                        tracing::info!(
                             network_id = update.network_id.0,
                             tick = command.tick,
+                            old_tick,
                             actions = command.actions.len(),
-                            "Applied InputCommand"
+                            "[InputCmd] Updated InputCommand with actions"
                         );
                     }
                     latest.command = command;
+                } else {
+                    tracing::warn!(
+                        network_id = update.network_id.0,
+                        client_tick = command.tick,
+                        last_tick = latest.last_client_tick,
+                        max_jump = MAX_FORWARD_TICK_JUMP,
+                        "[InputCmd] InputCommand rejected (tick window mismatch)"
+                    );
                 }
             } else {
                 // First input for this entity: validate against authoritative server tick
@@ -272,11 +284,23 @@ impl ComponentReplicator for InputCommandReplicator {
                 // Synchronize command tick with capped_tick for consistency
                 command.tick = capped_tick;
 
+                tracing::info!(
+                    network_id = update.network_id.0,
+                    client_tick = command.tick,
+                    server_tick,
+                    capped_tick,
+                    "[InputCmd] First input for entity — Inserting LatestInput"
+                );
                 entity_mut.insert(LatestInput {
                     command,
                     last_client_tick: capped_tick,
                 });
             }
+        } else {
+            tracing::error!(
+                network_id = update.network_id.0,
+                "Failed to get entity_mut for InputCommand"
+            );
         }
     }
 }

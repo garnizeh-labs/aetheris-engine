@@ -116,6 +116,7 @@ pub struct DockedState {
 pub struct MiningBeam {
     pub active: bool,
     pub target: Option<NetworkId>,
+    #[serde(skip)]
     pub last_seen_input_tick: Option<u64>,
 }
 

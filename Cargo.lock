@@ -36,14 +36,10 @@ version = "0.8.1"
 [[package]]
 name = "aetheris-encoder-bitpack"
 version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a267a8802df687dcd220b0f6cdcaa63ae08e4f1f14a86f3fcbeaac0e94a707d4"
 
 [[package]]
 name = "aetheris-encoder-serde"
 version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9e035b47ccc9a9729d571b9bdcf23c16934c46909d5b0d1b4cc46610744559e"
 dependencies = [
  "aetheris-protocol",
  "metrics",
@@ -55,10 +51,9 @@ dependencies = [
 [[package]]
 name = "aetheris-protocol"
 version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a60898b3b21ec76c7868d164510719a8355ea4f9b53673cd5773a9c602c1c75a"
 dependencies = [
  "async-trait",
+ "instant",
  "prost",
  "serde",
  "serde_bytes",
@@ -2102,6 +2097,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "instant"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0242819d153cba4b4b05a5a8f2a7e9bbf97b6055b2a002b395c96b5ff3c0222"
+dependencies = [
+ "cfg-if",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
