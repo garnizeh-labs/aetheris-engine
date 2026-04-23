@@ -251,7 +251,7 @@ bench-baseline tag:
 # Record golden file for determinism validation (VS-07 §3.3)
 [group('bench')]
 record-golden:
-    AETHERIS_RECORD_GOLDEN=600 AETHERIS_AUTH_BYPASS=1 AETHERIS_METRICS_PORT=9001 AETHERIS_GRPC_ADDR=127.0.0.1:50052 AETHERIS_TELEMETRY_HTTP_PORT=50056 AETHERIS_RENET_ADDR=0.0.0.0:5001 AETHERIS_WT_ADDR=[::]:4434 rtk cargo run -p aetheris-server --features phase1 -- --tick-rate 60
+    AETHERIS_TICK_RATE=60 AETHERIS_RECORD_GOLDEN=600 AETHERIS_AUTH_BYPASS=1 AETHERIS_METRICS_PORT=9001 AETHERIS_GRPC_ADDR=127.0.0.1:50052 AETHERIS_TELEMETRY_HTTP_PORT=50056 AETHERIS_RENET_ADDR=0.0.0.0:5001 AETHERIS_WT_ADDR=[::]:4434 cargo run -p aetheris-server --features phase1 -- --
 
 # Run benchmarks and record results in benchmarks/<timestamp>
 [group('bench')]
@@ -265,4 +265,25 @@ bench-record:
     cargo bench --workspace
     echo "Copying results to ${RESULTS_DIR}..."
     cp -r target/criterion "${RESULTS_DIR}/criterion"
+    
+    echo "Generating REPORT.md scaffold..."
+    TEMP_REPORT=$(mktemp)
+    echo "# Performance Analysis Report - ${RUN_ID}" > "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "## Executive Summary" >> "${TEMP_REPORT}"
+    echo "- **Overall Status**: PENDING" >> "${TEMP_REPORT}"
+    echo "- **Key Changes**: Microbenchmarks for ${RUN_ID}" >> "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "## 📊 Benchmark Results" >> "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "| Metric | Measured Value | Budget | Status |" >> "${TEMP_REPORT}"
+    echo "| :--- | :--- | :--- | :--- |" >> "${TEMP_REPORT}"
+    echo "| **ECS Extract (1k Entities)** | \`TBD\` | < 2.5 ms | ⏳ |" >> "${TEMP_REPORT}"
+    echo "| **Tick Scheduler Overhead** | \`TBD\` | < 50 µs | ⏳ |" >> "${TEMP_REPORT}"
+    echo "| **MessagePack Encoding** | \`TBD\` | < 5.0 µs | ⏳ |" >> "${TEMP_REPORT}"
+    echo "" >> "${TEMP_REPORT}"
+    echo "## 🔍 Detailed Analysis" >> "${TEMP_REPORT}"
+    echo "- **Observation**: Results in \`criterion/\` directory." >> "${TEMP_REPORT}"
+    mv "${TEMP_REPORT}" "${RESULTS_DIR}/REPORT.md"
+    
     echo "Done. Results persisted in: ${RESULTS_DIR}"

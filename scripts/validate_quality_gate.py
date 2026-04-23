@@ -22,6 +22,9 @@ def parse_report(report_path):
     return metrics
 
 def to_ms(value_str):
+    if not value_str:
+        raise ValueError("Cannot convert empty or null duration to ms")
+
     if 'µs' in value_str:
         return float(value_str.replace('µs', '').strip()) / 1000.0
     if 'ms' in value_str:
@@ -30,7 +33,8 @@ def to_ms(value_str):
         return float(value_str.replace('ns', '').strip()) / 1000000.0
     if 's' in value_str:
         return float(value_str.replace('s', '').strip()) * 1000.0
-    return 0.0
+    
+    raise ValueError(f"Unrecognized duration unit in value: '{value_str}'")
 
 def validate():
     gate_path = 'PHASE-1-QUALITY-GATE.json'
@@ -44,13 +48,13 @@ def validate():
     # Find the latest report
     benchmarks_dir = 'benchmarks'
     if not os.path.exists(benchmarks_dir):
-        print("No benchmarks directory found.")
-        return
+        print(f"Error: Benchmarks directory '{benchmarks_dir}' not found.")
+        sys.exit(1)
 
     reports = sorted([d for d in os.listdir(benchmarks_dir) if os.path.isdir(os.path.join(benchmarks_dir, d)) and d != '_template'])
     if not reports:
-        print("No benchmark reports found in benchmarks/.")
-        return
+        print("Error: No benchmark reports found in benchmarks/.")
+        sys.exit(1)
     
     latest_report_dir = os.path.join(benchmarks_dir, reports[-1])
     report_path = os.path.join(latest_report_dir, 'REPORT.md')
@@ -67,7 +71,7 @@ def validate():
     max_tick_ms = perf_thresholds['max_tick_duration_ms']
     
     total_bench_ms = 0.0
-    found_any = False
+    missing = []
     
     # Mapping JSON bench keys to REPORT.md display names
     key_map = {
@@ -83,12 +87,12 @@ def validate():
             val_ms = to_ms(metrics[display_name])
             total_bench_ms += val_ms
             print(f"  - {display_name}: {metrics[display_name]} -> {val_ms:.4f} ms")
-            found_any = True
         else:
-            print(f"  - Warning: Benchmark '{bench_key}' ({display_name}) not found in report.")
+            print(f"  - Error: Benchmark '{bench_key}' ({display_name}) not found in report.")
+            missing.append(bench_key)
             
-    if not found_any:
-        print("Error: No benchmarks found in report to validate aggregate budget.")
+    if missing:
+        print(f"❌ QUALITY GATE BREACH: Missing {len(missing)} required benchmarks: {', '.join(missing)}")
         sys.exit(1)
 
     print(f"Aggregate Benchmark Time: {total_bench_ms:.4f} ms")
