@@ -31,15 +31,15 @@ version = "0.7.0"
 
 [[package]]
 name = "aetheris-encoder-bitpack"
-version = "0.2.12"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ebea553b428900ba5a7326bffa32c5ef0bff69e47ecbcc206d7bc6189ed2ac8"
+checksum = "4d7838db047d8b7049e39eb4a522e11e8579188bdcce0a0f841a49cee2f09473"
 
 [[package]]
 name = "aetheris-encoder-serde"
-version = "0.2.12"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2cbc96ac0eb65d12b7770aa24df81f0cb237485d4134a5266f2a6b9e151a567"
+checksum = "5fd5375f77696e0b0949d0f861e2314635f2bef995ffa06e1ce70d96ceda9c54"
 dependencies = [
  "aetheris-protocol",
  "metrics",
@@ -50,9 +50,9 @@ dependencies = [
 
 [[package]]
 name = "aetheris-protocol"
-version = "0.2.12"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91ca11b2b875d5210a78d764e8eb33ed265dcab2575859c161cf491f10fbf2d7"
+checksum = "d75e81067d3c366ce32672101f7fe1e4ad6a514ba99129a12fe5b87143527287"
 dependencies = [
  "async-trait",
  "prost",
@@ -95,6 +95,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "rand 0.10.1",
+ "rayon",
  "reqwest 0.13.2",
  "rustls",
  "rusty_paseto",
@@ -102,6 +103,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "subtle",
+ "thiserror 1.0.69",
  "tikv-jemalloc-ctl",
  "tikv-jemallocator",
  "tokio",
@@ -926,6 +928,16 @@ name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+
+[[package]]
+name = "crossbeam-deque"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dd111b7b7f7d55b72c0a6ae361660ee5853c9af73f70c3c2ef6858b950e2e51"
+dependencies = [
+ "crossbeam-epoch",
+ "crossbeam-utils",
+]
 
 [[package]]
 name = "crossbeam-epoch"
@@ -2361,7 +2373,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http",
@@ -3013,6 +3025,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "rayon"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
+dependencies = [
+ "either",
+ "rayon-core",
+]
+
+[[package]]
+name = "rayon-core"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
+dependencies = [
+ "crossbeam-deque",
+ "crossbeam-utils",
 ]
 
 [[package]]

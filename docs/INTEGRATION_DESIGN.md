@@ -294,7 +294,7 @@ sequenceDiagram
 
     S5->>ENC: encode(event, &mut buffer) → usize
     S5->>TX: broadcast_unreliable(&buffer[..len])
-    Note over S5: P3: ChannelClassifier assigns<br/>each delta to a Priority Channel.<br/>PriorityScheduler dispatches P0→P5,<br/>shedding low-priority under congestion.<br/>See PRIORITY_CHANNELS_DESIGN §11.
+    Note over S5: Stage 5 uses **Rayon-parallelized dispatch**.<br/>Per-client batches are encoded in parallel.<br/>Synchronous encoding threads are bridged to<br/>the async reactor via tokio::runtime::Handle injection.
 
     Note over S1,S5: Tick N ends<br/>metrics::histogram!("tick_duration_ms").record(elapsed)
 ```
@@ -307,7 +307,7 @@ sequenceDiagram
 | **2 — Apply** | ≤ 2 ms | `HashMap` lookup by `ComponentKind` | Array-indexed dispatch table |
 | **3 — Simulate** | ≤ 10 ms | Bevy change-detection scanning all archetypes | Custom SoA with per-field dirty-bits |
 | **4 — Extract** | ≤ 2 ms | `Changed<T>` query + `Vec<u8>` alloc per delta | Borrowed slices from archetype storage |
-| **5 — Send** | ≤ 1.6 ms | `rmp-serde` serialization overhead | Custom bit-packer |
+| **5 — Send** | ≤ 1.6 ms | `rmp-serde` serialization (Now parallelized via Rayon) | Custom bit-packer |
 
 ---
 

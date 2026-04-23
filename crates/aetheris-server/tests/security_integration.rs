@@ -39,7 +39,7 @@ impl TryFrom<Vec<u8>> for MockPos {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_entity_hijacking_prevention() {
     let _ = tracing_subscriber::fmt::try_init();
     let bevy_world = World::new();
@@ -58,17 +58,27 @@ async fn test_entity_hijacking_prevention() {
     let cid_a = ClientId(1);
     let cid_b = ClientId(2);
 
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
-    let mut scheduler = TickScheduler::new(100, auth_service.clone());
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
+    let mut scheduler = TickScheduler::new(
+        100,
+        auth_service.clone(),
+        Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .unwrap(),
+        ),
+    );
 
     {
         let t = state.transport.lock().await;
         t.inject_event(NetworkEvent::ClientConnected(cid_a));
         t.inject_event(NetworkEvent::ClientConnected(cid_b));
 
-        let (token_a, _) = auth_service.mint_session_token_for_test("user_a").unwrap();
-        let (token_b, _) = auth_service.mint_session_token_for_test("user_b").unwrap();
+        let (token_a, _) = auth_service.mint_session_token("user_a", None).unwrap();
+        let (token_b, _) = auth_service.mint_session_token("user_b", None).unwrap();
 
         let serde_encoder = aetheris_encoder_serde::SerdeEncoder::new();
 
@@ -185,6 +195,7 @@ async fn test_entity_hijacking_prevention() {
     {
         let t = state.transport.lock().await;
         let serde_encoder = aetheris_encoder_serde::SerdeEncoder::new();
+
         t.inject_event(NetworkEvent::ReliableMessage {
             client_id: cid_a,
             data: serde_encoder
@@ -228,7 +239,7 @@ async fn test_entity_hijacking_prevention() {
         adapter
             .world_mut()
             .entity_mut(bevy_ent_b)
-            .insert(MockPos(10));
+            .insert(MockPos(100));
 
         let ent_a = adapter.get_local_id(nid_a).unwrap();
         let bevy_ent_a = bevy_ecs::entity::Entity::from_bits(ent_a.0);
@@ -271,7 +282,7 @@ async fn test_entity_hijacking_prevention() {
         let bevy_ent_b = bevy_ecs::entity::Entity::from_bits(ent_b.0);
         let pos = adapter.world().get::<MockPos>(bevy_ent_b).unwrap();
         assert_eq!(
-            pos.0, 10,
+            pos.0, 100,
             "Security Failure: Client A updated Client B's entity!"
         );
     }
@@ -312,14 +323,15 @@ async fn test_entity_hijacking_prevention() {
     handle.abort();
 }
 
-#[tokio::test]
-async fn test_grpc_message_size_limit() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::test(flavor = "multi_thread")]
+async fn test_grpc_control_plane_size_limit() -> Result<(), Box<dyn std::error::Error>> {
     use aetheris_protocol::auth::v1::auth_service_client::AuthServiceClient;
     use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
     use std::net::SocketAddr;
 
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
     let addr: SocketAddr = "127.0.0.1:0".parse()?;
     let listener = std::net::TcpListener::bind(addr)?;
     let addr = listener.local_addr()?;
@@ -328,7 +340,10 @@ async fn test_grpc_message_size_limit() -> Result<(), Box<dyn std::error::Error>
     let grpc_auth_service = auth_service.clone();
     tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .add_service(AuthServiceServer::new(grpc_auth_service).max_decoding_message_size(4096))
+            .add_service(
+                AuthServiceServer::new((*grpc_auth_service).clone())
+                    .max_decoding_message_size(4096),
+            )
             .serve(addr)
             .await
             .unwrap();
@@ -351,8 +366,8 @@ async fn test_grpc_message_size_limit() -> Result<(), Box<dyn std::error::Error>
     let channel = channel.expect("Failed to connect to gRPC server after retries");
     let mut client = AuthServiceClient::new(channel);
 
-    // Create an oversized request (email > 4KB, using 8KB for clear overflow)
-    let large_email = "a".repeat(8192);
+    // Create an oversized request (email > 5MB, using 6MB for clear overflow)
+    let large_email = "a".repeat(6 * 1024 * 1024);
     let request = tonic::Request::new(OtpRequest { email: large_email });
 
     let result: Result<Response<OtpRequestAck>, Status> = client.request_otp(request).await;
@@ -442,6 +457,16 @@ impl Encoder for EncoderRef {
         let serde_encoder = aetheris_encoder_serde::SerdeEncoder::new();
         serde_encoder.encode_event(ev)
     }
+
+    fn encode_event_into(
+        &self,
+        event: &NetworkEvent,
+        buffer: &mut [u8],
+    ) -> Result<usize, aetheris_protocol::error::EncodeError> {
+        let serde_encoder = aetheris_encoder_serde::SerdeEncoder::new();
+        serde_encoder.encode_event_into(event, buffer)
+    }
+
     fn decode_event(
         &self,
         data: &[u8],

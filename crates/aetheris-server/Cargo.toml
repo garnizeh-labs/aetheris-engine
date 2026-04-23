@@ -56,6 +56,7 @@ lettre = { version = "0.11", default-features = false, features = [
     "smtp-transport",
     "builder",
 ] }
+thiserror = "1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -70,6 +71,7 @@ opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 bevy_ecs = { workspace = true }
+rayon = "1.12.0"
 
 aetheris-transport-renet = { workspace = true, optional = true }
 aetheris-transport-webtransport = { workspace = true, optional = true }

@@ -24,6 +24,8 @@ use aetheris_encoder_serde::SerdeEncoder;
 use aetheris_protocol::traits::WorldState;
 use aetheris_server::MultiTransport;
 #[cfg(feature = "phase1")]
+use aetheris_server::TickScheduler;
+#[cfg(feature = "phase1")]
 use aetheris_transport_renet::RenetTransport;
 #[cfg(feature = "phase1")]
 use aetheris_transport_webtransport::WebTransportBridge;
@@ -134,8 +136,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let auth_service = AuthServiceImpl::new(email_sender).await;
-    let matchmaking_service = MatchmakingServiceImpl::new(Arc::new(auth_service.clone()));
+    let auth_service = Arc::new(AuthServiceImpl::new(email_sender).await);
+    let matchmaking_service = MatchmakingServiceImpl::new(auth_service.clone());
     let telemetry_service = AetherisTelemetryService::new();
 
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
@@ -194,7 +196,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "phase1")]
     {
-        use aetheris_server::TickScheduler;
+        let encode_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(config.encode_threads)
+                .thread_name(|i| format!("aetheris-encode-{}", i))
+                .build()
+                .expect("Failed to build encode thread pool"),
+        );
+
         let mut transport = MultiTransport::new();
 
         // Register Renet (UDP) first so that Renet clients pay no extra overhead.
@@ -240,7 +249,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let encoder = SerdeEncoder::new();
 
-        let mut scheduler = TickScheduler::new(tick_rate, auth_service.clone());
+        let mut scheduler = TickScheduler::new(
+            tick_rate,
+            auth_service.clone() as Arc<dyn aetheris_server::auth::AuthSessionVerifier>,
+            encode_pool,
+        );
         let shutdown_clone = shutdown_tx.subscribe();
 
         let scheduler_handle = tokio::spawn(async move {
@@ -255,11 +268,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         let shutdown_auth_tx = shutdown_tx.clone();
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.ok();
-            tracing::info!("Shutdown signal received, triggering cancellation...");
-            let _ = shutdown_auth_tx.send(());
-        });
+        use tracing::Instrument;
+        tokio::spawn(
+            async move {
+                #[cfg(unix)]
+                {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut sigterm =
+                        signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                    let mut sigint =
+                        signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+
+                    tokio::select! {
+                        _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
+                        _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                    }
+                }
+
+                #[cfg(not(unix))]
+                {
+                    tokio::signal::ctrl_c().await.ok();
+                    tracing::info!("Shutdown signal received, triggering cancellation...");
+                }
+
+                let _ = shutdown_auth_tx.send(());
+            }
+            .instrument(tracing::info_span!("shutdown_watcher")),
+        );
 
         tracing::info!(
             "Aetheris Game Server (WebTransport) listening on {}",
@@ -326,11 +361,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "phase1"))]
     {
         let shutdown_fallback_tx = shutdown_tx.clone();
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.ok();
-            tracing::info!("Shutdown signal received, triggering cancellation...");
-            let _ = shutdown_fallback_tx.send(());
-        });
+        use tracing::Instrument;
+        tokio::spawn(
+            async move {
+                #[cfg(unix)]
+                {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut sigterm =
+                        signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+                    let mut sigint =
+                        signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+
+                    tokio::select! {
+                        _ = sigterm.recv() => tracing::info!("SIGTERM received, triggering cancellation..."),
+                        _ = sigint.recv() => tracing::info!("SIGINT received, triggering cancellation..."),
+                    }
+                }
+
+                #[cfg(not(unix))]
+                {
+                    tokio::signal::ctrl_c().await.ok();
+                    tracing::info!("Shutdown signal received, triggering cancellation...");
+                }
+
+                let _ = shutdown_fallback_tx.send(());
+            }
+            .instrument(tracing::info_span!("shutdown_watcher_fallback")),
+        );
 
         let cors = if env == "production" {
             CorsLayer::new().allow_origin(
@@ -385,6 +442,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
     }
 
+    tracing::info!("Aetheris Server shutdown complete. Telemetry will flush on exit.");
     Ok(())
 }
 
@@ -409,12 +467,12 @@ async fn build_tls_config(cert_path: &str, key_path: &str) -> Result<ServerTlsCo
 
 fn register_services<L: Clone>(
     mut builder: Server<L>,
-    auth_service: AuthServiceImpl,
+    auth_service: Arc<AuthServiceImpl>,
     matchmaking_service: MatchmakingServiceImpl,
     telemetry_service: AetherisTelemetryService,
 ) -> tonic::transport::server::Router<L> {
     builder
-        .add_service(AuthServiceServer::new(auth_service))
+        .add_service(AuthServiceServer::new(auth_service.as_ref().clone()))
         .add_service(MatchmakingServiceServer::new(matchmaking_service))
         .add_service(TelemetryServiceServer::new(telemetry_service))
 }

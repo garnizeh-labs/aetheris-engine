@@ -5,38 +5,54 @@ use tokio::sync::broadcast;
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{Instrument, debug_span, error, info_span};
 
-use crate::auth::AuthServiceImpl;
 use aetheris_protocol::error::EncodeError;
 use aetheris_protocol::events::{FragmentedEvent, NetworkEvent};
 use aetheris_protocol::reassembler::Reassembler;
 use aetheris_protocol::traits::{Encoder, GameTransport, WorldState};
+use aetheris_protocol::types::{ClientId, NetworkId};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio::sync::mpsc;
+
+/// Messages sent to the dedicated outbound sender task.
+pub enum OutboundMessage {
+    Unreliable { client_id: ClientId, data: Vec<u8> },
+    Reliable { client_id: ClientId, data: Vec<u8> },
+    BroadcastUnreliable { data: Vec<u8> },
+}
+
+#[derive(Debug, Clone)]
+pub enum DeltaTargets {
+    Broadcast,
+    Recipients(Vec<ClientId>),
+    NoRecipients,
+}
 
 /// Manages the fixed-timestep execution of the game loop.
 #[derive(Debug)]
 pub struct TickScheduler {
     tick_rate: u64,
     current_tick: u64,
-    auth_service: AuthServiceImpl,
+    auth_service: Arc<dyn crate::auth::AuthSessionVerifier>,
 
-    /// Maps `ClientId` -> (Session JTI, all owned `NetworkId`s)
-    /// Index 0 (if present) is always the session ship.
-    authenticated_clients: HashMap<
-        aetheris_protocol::types::ClientId,
-        (String, Vec<aetheris_protocol::types::NetworkId>),
-    >,
+    /// Maps `ClientId` -> (Session JTI, owned session ship `NetworkId`)
+    authenticated_clients: HashMap<ClientId, (String, Option<NetworkId>)>,
     /// Tracks when each client was successfully authenticated.
-    /// Used to record `aetheris_session_start_latency_seconds` — the server-side
-    /// time from auth validation to Possession dispatch. See A-08 in
-    /// `performance/runs/20260422_101553/ACTIONS.md`.
-    auth_timestamps: HashMap<aetheris_protocol::types::ClientId, Instant>,
+    auth_timestamps: HashMap<ClientId, Instant>,
     reassembler: Reassembler,
     next_message_id: u32,
+    encode_pool: Arc<rayon::ThreadPool>,
+    outbound_tx: Option<mpsc::Sender<OutboundMessage>>,
 }
 
 impl TickScheduler {
     /// Creates a new scheduler with the specified tick rate.
     #[must_use]
-    pub fn new(tick_rate: u64, auth_service: AuthServiceImpl) -> Self {
+    pub fn new(
+        tick_rate: u64,
+        auth_service: Arc<dyn crate::auth::AuthSessionVerifier>,
+        encode_pool: Arc<rayon::ThreadPool>,
+    ) -> Self {
         Self {
             tick_rate,
             current_tick: 0,
@@ -44,30 +60,67 @@ impl TickScheduler {
             authenticated_clients: HashMap::new(),
             auth_timestamps: HashMap::new(),
             reassembler: Reassembler::new(),
-            next_message_id: 0,
+            next_message_id: 1,
+            encode_pool,
+            outbound_tx: None,
         }
+    }
+
+    /// Sets the outbound channel for messages. Used in tests or custom loops.
+    pub fn set_outbound_tx(&mut self, tx: tokio::sync::mpsc::Sender<OutboundMessage>) {
+        self.outbound_tx = Some(tx);
     }
 
     /// Runs the infinite game loop until the shutdown token is cancelled.
     pub async fn run(
         &mut self,
-        mut transport: Box<dyn GameTransport>,
+        transport: Box<dyn GameTransport>,
         mut world: Box<dyn WorldState>,
         encoder: Box<dyn Encoder>,
         mut shutdown: broadcast::Receiver<()>,
     ) {
+        let (tx, mut rx) = mpsc::channel(2048);
+        self.outbound_tx = Some(tx.clone());
+
+        let transport = Arc::new(RwLock::new(transport));
+        let transport_clone = transport.clone();
+
+        let mut outbound_shutdown = shutdown.resubscribe();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    msg = rx.recv() => {
+                        let Some(msg) = msg else { break; };
+                        let transport = transport_clone.read().await;
+                        match msg {
+                            OutboundMessage::Unreliable { client_id, data } => {
+                                if let Err(e) = transport.send_unreliable(client_id, &data).await {
+                                    error!(error = ?e, ?client_id, "Outbound task failed to send unreliable message");
+                                }
+                            }
+                            OutboundMessage::Reliable { client_id, data } => {
+                                if let Err(e) = transport.send_reliable(client_id, &data).await {
+                                    error!(error = ?e, ?client_id, "Outbound task failed to send reliable message");
+                                }
+                            }
+                            OutboundMessage::BroadcastUnreliable { data } => {
+                                if let Err(e) = transport.broadcast_unreliable(&data).await {
+                                    error!(error = ?e, "Outbound task failed to broadcast unreliable message");
+                                }
+                            }
+                        }
+                    }
+                    _ = outbound_shutdown.recv() => {
+                        break;
+                    }
+                }
+            }
+        });
+
         #[allow(clippy::cast_precision_loss)]
         let tick_duration = Duration::from_secs_f64(1.0 / self.tick_rate as f64);
         let mut interval = interval(tick_duration);
-        // Use Delay so that a slow tick shifts the next deadline rather than
-        // firing immediately (Burst) or silently skipping it (Skip). This keeps
-        // the effective tick rate at the configured target instead of running at
-        // whatever rate the hardware allows. See A-07 in performance/runs/20260422_092931/.
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-        // Pre-allocate buffer for Stage 5 to avoid per-tick allocations.
-        // Encoder's max_encoded_size is used as a safe upper bound.
-        let mut encode_buffer = vec![0u8; encoder.max_encoded_size()];
 
         let mut last_tick_wall = Instant::now();
 
@@ -86,10 +139,9 @@ impl TickScheduler {
                     last_tick_wall = start;
 
                     self.tick_step(
-                        transport.as_mut(),
+                        &transport,
                         world.as_mut(),
                         encoder.as_ref(),
-                        &mut encode_buffer,
                     )
                     .instrument(info_span!("tick", tick = tick_num))
                     .await;
@@ -106,15 +158,18 @@ impl TickScheduler {
     }
 
     /// Executes a single 5-stage tick pipeline.
-    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+    #[allow(clippy::too_many_lines)]
     pub async fn tick_step(
         &mut self,
-        transport: &mut dyn GameTransport,
+        transport_lock: &RwLock<Box<dyn GameTransport>>,
         world: &mut dyn WorldState,
         encoder: &dyn Encoder,
-        encode_buffer: &mut [u8],
     ) {
+        let tick_start = Instant::now();
         let tick = self.current_tick;
+        self.current_tick += 1;
+
+        let mut transport = transport_lock.write().await;
         // Pre-Stage: Advance the world change tick before any inputs are applied.
         // This ensures entities spawned in Stage 2 receive a tick strictly greater than
         // `last_extraction_tick`, which is required for Bevy 0.15+'s `is_changed` check.
@@ -159,10 +214,8 @@ impl TickScheduler {
                 }
             }
             for client_id in to_remove {
-                if let Some((_, network_ids)) = self.authenticated_clients.remove(&client_id) {
-                    for network_id in network_ids {
-                        let _ = world.despawn_networked(network_id);
-                    }
+                if let Some((_, Some(nid))) = self.authenticated_clients.remove(&client_id) {
+                    let _ = world.despawn_networked(nid);
                 }
                 self.auth_timestamps.remove(&client_id);
                 metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
@@ -212,10 +265,8 @@ impl TickScheduler {
                     }
                     NetworkEvent::ClientDisconnected(id) | NetworkEvent::Disconnected(id) => {
                         metrics::gauge!("aetheris_connected_clients").decrement(1.0);
-                        if let Some((_, network_ids)) = self.authenticated_clients.remove(&id) {
-                            for network_id in network_ids {
-                                let _ = world.despawn_networked(network_id);
-                            }
+                        if let Some((_, Some(nid))) = self.authenticated_clients.remove(&id) {
+                            let _ = world.despawn_networked(nid);
                         }
                         self.auth_timestamps.remove(&id);
                         tracing::info!(client_id = ?id, "Client disconnected");
@@ -225,10 +276,8 @@ impl TickScheduler {
                         metrics::counter!("aetheris_transport_events_total", "type" => "session_closed")
                         .increment(1);
                         tracing::warn!(client_id = ?id, "WebTransport session closed");
-                        if let Some((_, network_ids)) = self.authenticated_clients.remove(&id) {
-                            for network_id in network_ids {
-                                let _ = world.despawn_networked(network_id);
-                            }
+                        if let Some((_, Some(nid))) = self.authenticated_clients.remove(&id) {
+                            let _ = world.despawn_networked(nid);
                         }
                         self.auth_timestamps.remove(&id);
                         (id, Vec::new(), false)
@@ -237,10 +286,8 @@ impl TickScheduler {
                         metrics::counter!("aetheris_transport_events_total", "type" => "stream_reset")
                         .increment(1);
                         tracing::error!(client_id = ?id, "WebTransport stream reset");
-                        if let Some((_, network_ids)) = self.authenticated_clients.remove(&id) {
-                            for network_id in network_ids {
-                                let _ = world.despawn_networked(network_id);
-                            }
+                        if let Some((_, Some(nid))) = self.authenticated_clients.remove(&id) {
+                            let _ = world.despawn_networked(nid);
                         }
                         self.auth_timestamps.remove(&id);
                         (id, Vec::new(), false)
@@ -262,6 +309,7 @@ impl TickScheduler {
                     | NetworkEvent::RequestSystemManifest { client_id }
                     | NetworkEvent::GameEvent { client_id, .. }
                     | NetworkEvent::StressTest { client_id, .. }
+                    | NetworkEvent::ReplicationBatch { client_id, .. }
                     | NetworkEvent::Spawn { client_id, .. } => (client_id, Vec::new(), false),
                     NetworkEvent::Pong { .. } | NetworkEvent::Auth { .. } => {
                         (aetheris_protocol::types::ClientId(0), Vec::new(), false)
@@ -277,12 +325,9 @@ impl TickScheduler {
                     // Re-validate session on every message to refresh sliding window / catch revocation
                     if !self.auth_service.is_session_authorized(jti, Some(tick)) {
                         tracing::warn!(?client_id, "Session revoked; dropping client");
-                        if let Some((_, network_ids)) =
-                            self.authenticated_clients.remove(&client_id)
+                        if let Some((_, Some(nid))) = self.authenticated_clients.remove(&client_id)
                         {
-                            for network_id in network_ids {
-                                let _ = world.despawn_networked(network_id);
-                            }
+                            let _ = world.despawn_networked(nid);
                         }
                         self.auth_timestamps.remove(&client_id);
                         metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
@@ -294,28 +339,30 @@ impl TickScheduler {
                     match encoder.decode_event(&raw_data) {
                         Ok(NetworkEvent::Auth { session_token }) => {
                             tracing::info!(?client_id, "Auth message received");
-                            if let Some(jti) = self
-                                .auth_service
-                                .validate_and_get_jti(&session_token, Some(tick))
-                            {
-                                tracing::info!(?client_id, "Client authenticated successfully");
+                            match self.auth_service.verify_session(&session_token, Some(tick)) {
+                                Ok(session) => {
+                                    tracing::info!(?client_id, "Client authenticated successfully");
 
-                                self.authenticated_clients
-                                    .insert(client_id, (jti, Vec::new()));
-                                // Record when auth completed so we can measure server-side
-                                // possession latency (A-08 profiling metric).
-                                self.auth_timestamps.insert(client_id, Instant::now());
+                                    self.authenticated_clients
+                                        .insert(client_id, (session.jti, None));
+                                    // Record when auth completed so we can measure server-side
+                                    // possession latency (A-08 profiling metric).
+                                    self.auth_timestamps.insert(client_id, Instant::now());
 
-                                tracing::info!(
-                                    ?client_id,
-                                    "[Auth] Client authenticated — waiting for StartSession to spawn ship"
-                                );
-                                continue;
+                                    tracing::info!(
+                                        ?client_id,
+                                        "[Auth] Client authenticated — waiting for StartSession to spawn ship"
+                                    );
+                                    continue;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        ?client_id,
+                                        error = ?e,
+                                        "Client failed authentication"
+                                    );
+                                }
                             }
-                            tracing::warn!(
-                                ?client_id,
-                                "Client failed authentication (token rejected)"
-                            );
                         }
                         Ok(other) => {
                             tracing::warn!(
@@ -397,17 +444,12 @@ impl TickScheduler {
                             if can_run_playground_command(jti) {
                                 let network_id =
                                     world.spawn_kind_for(entity_type, x, y, rot, client_id);
-                                if let Some((_, network_ids)) =
-                                    self.authenticated_clients.get_mut(&client_id)
-                                {
-                                    network_ids.push(network_id);
-                                }
 
                                 tracing::info!(
                                     ?client_id,
                                     entity_type,
                                     new_entity_id = network_id.0,
-                                    "[Spawn] Playground entity spawned — tracked for cleanup on disconnect"
+                                    "[Spawn] Playground entity spawned"
                                 );
                             } else {
                                 tracing::warn!(?client_id, "Unauthorized Spawn attempt");
@@ -416,25 +458,21 @@ impl TickScheduler {
                             }
                         }
                         NetworkEvent::StartSession { .. } => {
-                            // Only allow one session ship per client.
-                            let already_has_ship = self
-                                .authenticated_clients
-                                .get(&client_id)
-                                .is_some_and(|(_, ids)| !ids.is_empty());
-
-                            if already_has_ship {
-                                tracing::warn!(
-                                    ?client_id,
-                                    "StartSession ignored — client already has a session ship"
-                                );
-                            } else {
-                                let network_id =
-                                    world.spawn_session_ship(1, 0.0, 0.0, 0.0, client_id);
-                                if let Some((_, network_ids)) =
-                                    self.authenticated_clients.get_mut(&client_id)
-                                {
-                                    network_ids.push(network_id); // index 0 = session ship
-                                }
+                            if let Some((_, ship_id)) =
+                                self.authenticated_clients.get_mut(&client_id)
+                            {
+                                let network_id = if let Some(nid) = ship_id {
+                                    tracing::info!(
+                                        ?client_id,
+                                        ?nid,
+                                        "Reusing existing session ship"
+                                    );
+                                    *nid
+                                } else {
+                                    let nid = world.spawn_session_ship(1, 0.0, 0.0, 0.0, client_id);
+                                    *ship_id = Some(nid);
+                                    nid
+                                };
 
                                 world.queue_reliable_event(
                                     Some(client_id),
@@ -442,11 +480,6 @@ impl TickScheduler {
                                 );
 
                                 // Record server-side auth→possession latency (A-08 profiling).
-                                // This measures only the server cost (spawn + event queue) after
-                                // auth validation — not the client-observed round-trip time.
-                                // If this histogram shows values near zero the 6 ms stretch miss
-                                // in Time-to-Possess P99 is attributable to protocol handshake
-                                // and tick-scheduling jitter, not server processing.
                                 if let Some(auth_ts) = self.auth_timestamps.remove(&client_id) {
                                     metrics::histogram!("aetheris_session_start_latency_seconds")
                                         .record(auth_ts.elapsed().as_secs_f64());
@@ -455,7 +488,7 @@ impl TickScheduler {
                                 tracing::info!(
                                     ?client_id,
                                     network_id = network_id.0,
-                                    "[StartSession] Session ship spawned — Possession sent"
+                                    "[StartSession] Session ship assigned — Possession sent"
                                 );
                             }
                         }
@@ -467,10 +500,10 @@ impl TickScheduler {
                                 // StartSession can spawn a new session ship.  Without this,
                                 // the "already_has_ship" guard blocks the next StartSession
                                 // even though all entities were just despawned.
-                                if let Some((_, ids)) =
+                                if let Some((_, ship_id)) =
                                     self.authenticated_clients.get_mut(&client_id)
                                 {
-                                    ids.clear();
+                                    *ship_id = None;
                                 }
                                 // Queue a reliable ClearWorld ack to send after this block.
                                 // EnteredSpan is !Send so we cannot .await inside this scope.
@@ -497,6 +530,19 @@ impl TickScheduler {
                                 Some(client_id),
                                 aetheris_protocol::events::GameEvent::SystemManifest { manifest },
                             );
+                        }
+                        NetworkEvent::ReplicationBatch { events, .. } => {
+                            for event in events {
+                                updates.push((
+                                    client_id,
+                                    aetheris_protocol::events::ComponentUpdate {
+                                        network_id: event.network_id,
+                                        component_kind: event.component_kind,
+                                        payload: event.payload,
+                                        tick: event.tick,
+                                    },
+                                ));
+                            }
                         }
                         _ => {
                             tracing::trace!(?protocol_event, "Protocol event");
@@ -578,8 +624,9 @@ impl TickScheduler {
         // Stage 4: Extract
         let t4 = Instant::now();
         let (deltas, reliable_events) = {
-            let _span = debug_span!("stage4_extract").entered();
-            (world.extract_deltas(), world.extract_reliable_events())
+            let ds = world.extract_deltas();
+            let rs = world.extract_reliable_events();
+            (ds, rs)
         };
         // Reset ECS change-detection *after* extraction so simulate()'s mutations are visible.
         world.post_extract();
@@ -602,8 +649,13 @@ impl TickScheduler {
                 let network_event = wire_event.clone().into_network_event(id);
                 match encoder.encode_event(&network_event) {
                     Ok(data) => {
-                        if let Err(e) = transport.send_reliable(id, &data).await {
-                            error!(error = ?e, client_id = ?id, "Failed to send reliable event");
+                        if let Some(tx) = &self.outbound_tx {
+                            let _ = tx
+                                .send(OutboundMessage::Reliable {
+                                    client_id: id,
+                                    data,
+                                })
+                                .await;
                         }
                     }
                     Err(e) => {
@@ -619,142 +671,148 @@ impl TickScheduler {
             let stage_span = debug_span!("stage5_send", count = deltas.len());
             let _guard = stage_span.enter();
 
+            // A-01: Packet Batching (Phase 1 Optimization)
+            // Group all deltas by their target clients to avoid N*M packet explosion.
+            let mut client_batches: HashMap<
+                aetheris_protocol::types::ClientId,
+                Vec<aetheris_protocol::events::ReplicationEvent>,
+            > = HashMap::with_capacity(self.authenticated_clients.len());
+
             for delta in deltas {
-                let encode_result = encoder.encode(&delta, encode_buffer);
-                match encode_result {
-                    Ok(len) if len > aetheris_protocol::MAX_SAFE_PAYLOAD_SIZE => {
-                        let targets = Self::get_delta_targets(
-                            world,
-                            &self.authenticated_clients,
-                            delta.network_id,
-                        );
-                        match self
-                            .fragment_and_send(encode_buffer, len, &targets, encoder, transport)
-                            .await
-                        {
-                            Ok(count) => broadcast_count += count,
-                            Err(e) => error!(error = ?e, "Failed to fragment and broadcast delta"),
+                let targets =
+                    Self::get_delta_targets(world, &self.authenticated_clients, delta.network_id);
+
+                match targets {
+                    DeltaTargets::Broadcast => {
+                        // Global broadcast (to all authenticated clients)
+                        for &client_id in self.authenticated_clients.keys() {
+                            client_batches
+                                .entry(client_id)
+                                .or_default()
+                                .push(delta.clone());
                         }
                     }
-                    Ok(len) => {
-                        let targets = Self::get_delta_targets(
-                            world,
-                            &self.authenticated_clients,
-                            delta.network_id,
-                        );
-                        if targets.is_empty() {
-                            for &client_id in self.authenticated_clients.keys() {
-                                if let Err(e) = transport
-                                    .send_unreliable(client_id, &encode_buffer[..len])
-                                    .await
-                                {
-                                    error!(error = ?e, client = ?client_id, "Failed to send delta");
-                                } else {
-                                    broadcast_count += 1;
-                                }
-                            }
-                        } else if targets.len() == self.authenticated_clients.len() {
-                            // A-05: Phase 1 single-room broadcast short-circuit.
-                            //
-                            // SEMANTICS NOTE — broadcast_count:
-                            //   We iterate authenticated_clients and send individually to ensure
-                            //   unauthenticated connections do not receive data (broadcast_unreliable
-                            //   would send to everyone). broadcast_count is incremented once
-                            //   per successful per-client send (so +N for N clients).
-                            //   This ensures metric semantics are preserved.
-                            //
-                            //   The metric counts *dispatch calls* in this branch, which now
-                            //   equals the number of recipients.
-                            //
-                            //   ⚠ MUST REVERT before AoI / multi-room lands (Phase 2+).
-                            //   When AoI introduces per-room filtering, `targets` will be a
-                            //   strict subset of `authenticated_clients`. This branch should be
-                            //   removed or updated to handle true AoI-based multicasting.
-                            for &client_id in self.authenticated_clients.keys() {
-                                if let Err(e) = transport
-                                    .send_unreliable(client_id, &encode_buffer[..len])
-                                    .await
-                                {
-                                    error!(error = ?e, client = ?client_id, "Failed to send delta");
-                                } else {
-                                    broadcast_count += 1;
-                                }
-                            }
-                        } else {
-                            for target in targets {
-                                if let Err(e) = transport
-                                    .send_unreliable(target, &encode_buffer[..len])
-                                    .await
-                                {
-                                    error!(error = ?e, "Failed to send delta");
-                                } else {
-                                    broadcast_count += 1;
-                                }
-                            }
+                    DeltaTargets::Recipients(recipients) => {
+                        // Targeted multicast (AoI / Room filtered)
+                        for target in recipients {
+                            client_batches
+                                .entry(target)
+                                .or_default()
+                                .push(delta.clone());
                         }
                     }
-                    Err(EncodeError::BufferOverflow {
-                        needed,
-                        available: _,
-                    }) => {
-                        let mut large_buffer = vec![0u8; needed];
-                        if let Ok(len) = encoder.encode(&delta, &mut large_buffer) {
-                            let targets = Self::get_delta_targets(
-                                world,
-                                &self.authenticated_clients,
-                                delta.network_id,
-                            );
+                    DeltaTargets::NoRecipients => {}
+                }
+            }
+
+            let max_size = encoder.max_encoded_size();
+            thread_local! {
+                static SCRATCH_BUFFER: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+            }
+
+            // A-04: Parallel Stage 5 Encode
+            // CPU-intensive serialization is offloaded to a dedicated Rayon pool.
+            // We use block_in_place to inform Tokio that the current thread is performing CPU-heavy work.
+            use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+
+            let batches_to_encode: Vec<_> = client_batches.into_iter().collect();
+
+            let encoded_results = tokio::task::block_in_place(|| {
+                self.encode_pool.install(|| {
+                    batches_to_encode
+                        .into_par_iter()
+                        .map(|(client_id, events)| {
+                            let batch_event =
+                                aetheris_protocol::events::NetworkEvent::ReplicationBatch {
+                                    client_id,
+                                    events,
+                                };
+                            // SCRATCH_BUFFER optimization (M10105):
+                            // Uses worker-local memory to avoid allocations during serialization.
+                            // Only a single final allocation (to_vec) is performed to return data to main thread.
+                            SCRATCH_BUFFER.with(|buf| {
+                                let mut b = buf.borrow_mut();
+                                if b.len() < max_size {
+                                    b.resize(max_size, 0);
+                                }
+                                match encoder.encode_event_into(&batch_event, &mut b) {
+                                    Ok(size) => (client_id, Ok(b[..size].to_vec())),
+                                    Err(
+                                        aetheris_protocol::error::EncodeError::BufferOverflow {
+                                            ..
+                                        },
+                                    ) => {
+                                        // M10105 — Reliable fallback for large batches that exceed scratch buffer.
+                                        // We use the allocating encode_event() here as a safety valve.
+                                        match encoder.encode_event(&batch_event) {
+                                            Ok(data) => (client_id, Ok(data)),
+                                            Err(e) => (client_id, Err(e)),
+                                        }
+                                    }
+                                    Err(e) => (client_id, Err(e)),
+                                }
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+            });
+
+            for (client_id, result) in encoded_results {
+                match result {
+                    Ok(data) => {
+                        let targets = DeltaTargets::Recipients(vec![client_id]);
+                        if data.len() > aetheris_protocol::MAX_SAFE_PAYLOAD_SIZE {
                             match self
-                                .fragment_and_send(&large_buffer, len, &targets, encoder, transport)
+                                .fragment_and_send(&data, data.len(), &targets, encoder)
                                 .await
                             {
                                 Ok(count) => broadcast_count += count,
                                 Err(e) => {
-                                    error!(error = ?e, "Failed to fragment and broadcast large delta");
+                                    error!(error = ?e, ?client_id, "Failed to fragment large batch");
                                 }
                             }
-                        } else {
-                            error!("Failed to encode into large scratch buffer");
+                        } else if let Some(tx) = &self.outbound_tx {
+                            let _ = tx
+                                .send(OutboundMessage::Unreliable { client_id, data })
+                                .await;
+                            broadcast_count += 1;
                         }
                     }
                     Err(e) => {
-                        metrics::counter!("aetheris_encode_errors_total").increment(1);
-                        error!(
-                            network_id = ?delta.network_id,
-                            error = ?e,
-                            "Failed to encode delta"
-                        );
+                        error!(error = ?e, ?client_id, "Failed to encode batch");
                     }
                 }
             }
+
             metrics::counter!("aetheris_packets_outbound_total").increment(broadcast_count);
             metrics::counter!("aetheris_packets_broadcast_total").increment(broadcast_count);
         }
         metrics::histogram!("aetheris_stage_duration_seconds", "stage" => "send")
             .record(t5.elapsed().as_secs_f64());
 
-        // Stage 6: Finalize
-        self.current_tick += 1;
+        metrics::histogram!("aetheris_tick_duration_seconds")
+            .record(tick_start.elapsed().as_secs_f64());
     }
 
     fn get_delta_targets(
-        world: &mut dyn WorldState,
-        clients: &HashMap<
-            aetheris_protocol::types::ClientId,
-            (String, Vec<aetheris_protocol::types::NetworkId>),
-        >,
-        entity_id: aetheris_protocol::types::NetworkId,
-    ) -> Vec<aetheris_protocol::types::ClientId> {
+        world: &dyn WorldState,
+        clients: &HashMap<ClientId, (String, Option<NetworkId>)>,
+        entity_id: NetworkId,
+    ) -> DeltaTargets {
         if let Some(room_id) = world.get_entity_room(entity_id) {
-            let mut targets = Vec::new();
+            let mut recipients = Vec::new();
             for &client_id in clients.keys() {
                 if world.get_client_room(client_id) == Some(room_id) {
-                    targets.push(client_id);
+                    recipients.push(client_id);
                 }
             }
-            targets
+            if recipients.is_empty() {
+                DeltaTargets::NoRecipients
+            } else {
+                DeltaTargets::Recipients(recipients)
+            }
         } else {
-            Vec::new() // Empty means broadcast
+            DeltaTargets::Broadcast
         }
     }
 
@@ -762,10 +820,12 @@ impl TickScheduler {
         &mut self,
         data: &[u8],
         len: usize,
-        targets: &[aetheris_protocol::types::ClientId],
+        targets: &DeltaTargets,
         encoder: &dyn Encoder,
-        transport: &dyn GameTransport,
     ) -> Result<u64, EncodeError> {
+        let Some(tx) = &self.outbound_tx else {
+            return Ok(0);
+        };
         let message_id = self.next_message_id;
         self.next_message_id = self.next_message_id.wrapping_add(1);
 
@@ -798,30 +858,33 @@ impl TickScheduler {
                 payload: chunk.to_vec(),
             };
             let fragment_event = NetworkEvent::Fragment {
-                client_id: aetheris_protocol::types::ClientId(0),
+                client_id: ClientId(0),
                 fragment,
             };
 
             match encoder.encode_event(&fragment_event) {
-                Ok(encoded_fragment) => {
-                    if targets.is_empty() {
-                        if let Err(e) = transport.broadcast_unreliable(&encoded_fragment).await {
-                            error!(error = ?e, "Failed to broadcast fragment");
-                        } else {
+                Ok(encoded_fragment) => match targets {
+                    DeltaTargets::Broadcast => {
+                        let _ = tx
+                            .send(OutboundMessage::BroadcastUnreliable {
+                                data: encoded_fragment,
+                            })
+                            .await;
+                        sent_count += 1;
+                    }
+                    DeltaTargets::Recipients(recipients) => {
+                        for &target in recipients {
+                            let _ = tx
+                                .send(OutboundMessage::Unreliable {
+                                    client_id: target,
+                                    data: encoded_fragment.clone(),
+                                })
+                                .await;
                             sent_count += 1;
                         }
-                    } else {
-                        for &target in targets {
-                            if let Err(e) =
-                                transport.send_unreliable(target, &encoded_fragment).await
-                            {
-                                error!(error = ?e, "Failed to send fragment");
-                            } else {
-                                sent_count += 1;
-                            }
-                        }
                     }
-                }
+                    DeltaTargets::NoRecipients => {}
+                },
                 Err(e) => {
                     error!(error = ?e, "Failed to encode fragment event");
                 }

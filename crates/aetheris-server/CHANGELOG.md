@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🚜 Refactor
 
 - Replace broadcast with targeted per-client unreliable sends and optimize stress test and transport configuration
+- Implement `ReplicationBatch` protocol variant to mitigate packet explosion in Stage 5
+- Implement graceful shutdown with `SIGTERM`/`SIGINT` handlers and explicit OTLP flushing
+- Downgrade high-frequency simulation logs to `DEBUG` to reduce I/O pressure
+- Parallelize Stage 5 (Encode) using a dedicated Rayon thread pool with `tokio::task::block_in_place`
 ## [0.6.1] - 2026-04-22
 
 ### 🚀 Features

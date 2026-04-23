@@ -4,6 +4,7 @@ use aetheris_ecs_bevy::BevyWorldAdapter;
 use bevy_ecs::prelude::World;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 use aetheris_protocol::auth::v1::auth_service_client::AuthServiceClient;
 use aetheris_protocol::auth::v1::auth_service_server::AuthServiceServer;
@@ -20,7 +21,7 @@ use aetheris_server::auth::email::EmailSender;
 use tonic::transport::Channel;
 use tonic::{Response, Status};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_grpc_auth_flow() -> Result<(), Box<dyn std::error::Error>> {
     use std::net::SocketAddr;
     use tonic::transport::Server;
@@ -55,7 +56,7 @@ async fn test_grpc_auth_flow() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let email_sender = Arc::new(MockEmailSender::default());
-    let auth_service = AuthServiceImpl::new(email_sender.clone()).await;
+    let auth_service = Arc::new(AuthServiceImpl::new(email_sender.clone()).await);
     let addr: SocketAddr = "127.0.0.1:0".parse()?;
     let listener = std::net::TcpListener::bind(addr)?;
     let addr = listener.local_addr()?;
@@ -64,7 +65,7 @@ async fn test_grpc_auth_flow() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_auth_service = auth_service.clone();
     tokio::spawn(async move {
         Server::builder()
-            .add_service(AuthServiceServer::new(grpc_auth_service))
+            .add_service(AuthServiceServer::new((*grpc_auth_service).clone()))
             .serve(addr)
             .await
             .unwrap();
@@ -136,7 +137,7 @@ async fn test_grpc_auth_flow() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_server_loop_1000_ticks() {
     let transport = Box::new(MockTransport::new());
     let world = Box::new(MockWorldState::new());
@@ -150,9 +151,10 @@ async fn test_server_loop_1000_ticks() {
     let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
 
     let tick_rate = 1000;
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
-    let mut scheduler = TickScheduler::new(tick_rate, auth_service);
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
+    let mut scheduler = TickScheduler::new(tick_rate, auth_service, single_thread_encode_pool());
 
     let handle = tokio::spawn(async move {
         scheduler.run(transport, world, encoder, shutdown_rx).await;
@@ -277,6 +279,13 @@ impl Encoder for EncoderRef {
     ) -> Result<Vec<u8>, aetheris_protocol::error::EncodeError> {
         self.0.encoder.encode_event(ev)
     }
+    fn encode_event_into(
+        &self,
+        event: &NetworkEvent,
+        buffer: &mut [u8],
+    ) -> Result<usize, aetheris_protocol::error::EncodeError> {
+        self.0.encoder.encode_event_into(event, buffer)
+    }
     fn decode_event(
         &self,
         data: &[u8],
@@ -299,7 +308,7 @@ async fn inject_auth_handshake(
     auth_service: &AuthServiceImpl,
 ) {
     let player_id = "test-player";
-    let (session_token, _) = auth_service.mint_session_token_for_test(player_id).unwrap();
+    let (session_token, _) = auth_service.mint_session_token(player_id, None).unwrap();
 
     let serde_encoder = aetheris_encoder_serde::SerdeEncoder::new();
     let auth_packet = serde_encoder
@@ -315,7 +324,7 @@ async fn inject_auth_handshake(
         });
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_client_connect_and_replication() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -340,8 +349,9 @@ async fn test_client_connect_and_replication() {
         .unwrap()
         .insert(cid, Vec::new());
 
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
     inject_auth_handshake(&state.transport, cid, &auth_service).await;
 
     // Spawn an entity to trigger replication
@@ -356,7 +366,7 @@ async fn test_client_connect_and_replication() {
         });
     }
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -387,7 +397,7 @@ async fn test_client_connect_and_replication() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_full_integration_suite() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -413,13 +423,14 @@ async fn test_full_integration_suite() {
         .insert(cid, Vec::new());
 
     // Security: Satisfy mandatory auth handshake
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
     inject_auth_handshake(&state.transport, cid, &auth_service).await;
 
     let nid = state.world.lock().unwrap().spawn_networked();
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -465,7 +476,7 @@ async fn test_full_integration_suite() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_consecutive_dropped_packets_interpolation() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -491,13 +502,14 @@ async fn test_consecutive_dropped_packets_interpolation() {
         .insert(cid, Vec::new());
 
     // Security: Satisfy mandatory auth handshake
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
     inject_auth_handshake(&state.transport, cid, &auth_service).await;
 
     let nid = state.world.lock().unwrap().spawn_networked();
 
-    let mut scheduler = TickScheduler::new(100, auth_service); // 10ms ticks
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool()); // 10ms ticks
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -545,7 +557,7 @@ async fn test_consecutive_dropped_packets_interpolation() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_wasm_mtu_handling_simulation() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
@@ -570,11 +582,12 @@ async fn test_wasm_mtu_handling_simulation() {
         .insert(cid, Vec::new());
 
     // Security: Satisfy mandatory auth handshake
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
     inject_auth_handshake(&state.transport, cid, &auth_service).await;
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
     let loop_transport = Box::new(TransportRef(state.clone()));
     let loop_world = Box::new(WorldRef(state.clone()));
     let loop_encoder = Box::new(EncoderRef(state.clone()));
@@ -605,14 +618,13 @@ async fn test_wasm_mtu_handling_simulation() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_large_delta_fragmentation() {
     let state = SharedState {
         transport: Arc::new(tokio::sync::Mutex::new(MockTransport::new())),
         world: Arc::new(Mutex::new(MockWorldState::new())),
         encoder: Arc::new(MockEncoder::new()),
     };
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let cid = ClientId(1);
 
     state
@@ -630,8 +642,9 @@ async fn test_large_delta_fragmentation() {
         .unwrap()
         .insert(cid, Vec::new());
 
-    let auth_service =
-        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await;
+    let auth_service = Arc::new(
+        AuthServiceImpl::new(Arc::new(aetheris_server::auth::email::LogEmailSender)).await,
+    );
     inject_auth_handshake(&state.transport, cid, &auth_service).await;
 
     // Use a real encoder to test actual fragmentation logic
@@ -669,6 +682,13 @@ async fn test_large_delta_fragmentation() {
         ) -> Result<Vec<u8>, aetheris_protocol::error::EncodeError> {
             self.real.encode_event(ev)
         }
+        fn encode_event_into(
+            &self,
+            event: &NetworkEvent,
+            buffer: &mut [u8],
+        ) -> Result<usize, aetheris_protocol::error::EncodeError> {
+            self.real.encode_event_into(event, buffer)
+        }
         fn decode_event(
             &self,
             data: &[u8],
@@ -681,6 +701,72 @@ async fn test_large_delta_fragmentation() {
     }
 
     {
+        {
+            let w = state.world.lock().unwrap();
+            w.queue_delta(ReplicationEvent {
+                network_id: nid,
+                component_kind: ComponentKind(99),
+                payload: large_payload.clone(),
+                tick: 1,
+            });
+        }
+    }
+
+    let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
+    let transport_box: Box<dyn GameTransport> = Box::new(TransportRef(state.clone()));
+    let transport_lock = RwLock::new(transport_box);
+    let mut world_box: Box<dyn WorldState> = Box::new(WorldRef(state.clone()));
+    let loop_encoder = LargeEncoderRef {
+        real: real_encoder.clone(),
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(2048);
+    scheduler.set_outbound_tx(tx);
+
+    let transport_proxy = state.transport.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            use aetheris_server::tick::OutboundMessage;
+            match msg {
+                OutboundMessage::Reliable { client_id, data } => {
+                    transport_proxy
+                        .lock()
+                        .await
+                        .send_reliable(client_id, &data)
+                        .await
+                        .unwrap();
+                }
+                OutboundMessage::Unreliable { client_id, data } => {
+                    transport_proxy
+                        .lock()
+                        .await
+                        .send_unreliable(client_id, &data)
+                        .await
+                        .unwrap();
+                }
+                OutboundMessage::BroadcastUnreliable { data } => {
+                    transport_proxy
+                        .lock()
+                        .await
+                        .broadcast_unreliable(&data)
+                        .await
+                        .unwrap();
+                }
+            }
+        }
+    });
+
+    // Connect client
+    state.transport.lock().await.connect(cid);
+
+    // 1. Auth Handshake (requires one tick to process)
+    inject_auth_handshake(&state.transport, cid, &auth_service).await;
+    scheduler
+        .tick_step(&transport_lock, &mut *world_box, &loop_encoder)
+        .await;
+
+    // 2. Queue large delta
+    {
         let w = state.world.lock().unwrap();
         w.queue_delta(ReplicationEvent {
             network_id: nid,
@@ -690,20 +776,10 @@ async fn test_large_delta_fragmentation() {
         });
     }
 
-    let mut scheduler = TickScheduler::new(100, auth_service);
-    let loop_transport = Box::new(TransportRef(state.clone()));
-    let loop_world = Box::new(WorldRef(state.clone()));
-    let loop_encoder = Box::new(LargeEncoderRef {
-        real: real_encoder.clone(),
-    });
-
-    let handle = tokio::spawn(async move {
-        scheduler
-            .run(loop_transport, loop_world, loop_encoder, shutdown_rx)
-            .await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    // 3. Process delta (requires another tick)
+    scheduler
+        .tick_step(&transport_lock, &mut *world_box, &loop_encoder)
+        .await;
 
     // Verify fragments were sent
     let packets = state.transport.lock().await.take_unreliable(cid);
@@ -732,6 +808,9 @@ async fn test_large_delta_fragmentation() {
             });
     }
 
+    scheduler
+        .tick_step(&transport_lock, &mut *world_box, &loop_encoder)
+        .await;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Verify the world applied the reassembled update
@@ -749,11 +828,15 @@ async fn test_large_delta_fragmentation() {
     });
 
     assert!(found, "Reassembled delta was not applied to the world");
+}
 
-    handle.abort();
-    match handle.await {
-        Ok(()) => {}
-        Err(e) if e.is_cancelled() => {}
-        Err(e) => panic!("Scheduler task panicked: {e:?}"),
-    }
+/// Helper to provide a single-threaded Rayon pool for tests to avoid thread exhaustion.
+fn single_thread_encode_pool() -> Arc<rayon::ThreadPool> {
+    Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .thread_name(|i| format!("test-encode-{}", i))
+            .build()
+            .unwrap(),
+    )
 }

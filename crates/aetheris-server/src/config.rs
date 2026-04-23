@@ -9,6 +9,8 @@ pub struct ServerConfig {
     pub metrics_port: u16,
     /// Authoritative tick rate in Hz.
     pub tick_rate: u64,
+    /// Number of threads for parallel encoding.
+    pub encode_threads: usize,
 }
 
 impl ServerConfig {
@@ -25,9 +27,15 @@ impl ServerConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(60);
 
+        let encode_threads = std::env::var("AETHERIS_ENCODE_THREADS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2);
+
         Self {
             metrics_port,
             tick_rate,
+            encode_threads,
         }
     }
 }
