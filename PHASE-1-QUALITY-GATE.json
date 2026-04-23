@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "name": "Aetheris Phase 1 Quality Gate",
+  "description": "Baseline performance and stability metrics for VS-07 Hardening",
+  "thresholds": {
+    "performance": {
+      "min_tick_rate_hz": 59.5,
+      "max_tick_duration_ms": 16.6,
+      "hot_path_allocations": 0
+    },
+    "stability": {
+      "max_memory_usage_mb": 512,
+      "determinism_golden_ticks": 600,
+      "smoke_test_concurrency": 2
+    },
+    "telemetry": {
+      "otlp_enabled": true,
+      "prometheus_enabled": true
+    }
+  },
+  "benchmarks": [
+    "ecs_extract_dirty_7_of_1000",
+    "tick_scheduler_step_noop",
+    "encode_rmp_serde_transform"
+  ],
+  "determinism": {
+    "golden_file": "golden_600ticks.bin",
+    "seed": "0xCAFE_BABE"
+  }
+}

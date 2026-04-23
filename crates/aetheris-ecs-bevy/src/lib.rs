@@ -9,6 +9,7 @@ pub use registry::{ComponentReplicator, DefaultReplicator, ReplicatableComponent
 
 mod adapter;
 pub mod components;
+pub mod deterministic_rng;
 pub mod mining;
 pub mod physics_consts;
 pub mod registry;

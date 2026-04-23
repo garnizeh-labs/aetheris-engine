@@ -28,6 +28,7 @@ pub struct BevyWorldAdapter {
     allocator: aetheris_protocol::types::NetworkIdAllocator,
     last_extraction_tick: Option<Tick>,
     tick_rate: u64,
+    rng: crate::deterministic_rng::DeterministicRng,
 }
 
 impl Default for BevyWorldAdapter {
@@ -52,6 +53,35 @@ impl BevyWorldAdapter {
             allocator: NetworkIdAllocator::new(1),
             last_extraction_tick: None,
             tick_rate,
+            rng: crate::deterministic_rng::DeterministicRng::default(),
+        };
+        adapter
+            .world
+            .insert_resource(crate::components::ServerTick(0));
+        adapter
+            .world
+            .insert_resource(crate::components::ReliableEvents::default());
+        adapter
+            .world
+            .insert_resource(crate::components::RoomIndex::default());
+        adapter
+    }
+
+    /// Creates a new adapter with a custom deterministic RNG.
+    pub fn new_with_rng(
+        world: World,
+        tick_rate: u64,
+        rng: crate::deterministic_rng::DeterministicRng,
+    ) -> Self {
+        let mut adapter = Self {
+            world,
+            bimap: BiHashMap::new(),
+            owners: std::collections::HashMap::new(),
+            replicators: BTreeMap::new(),
+            allocator: NetworkIdAllocator::new(1),
+            last_extraction_tick: None,
+            tick_rate,
+            rng,
         };
         adapter
             .world
@@ -430,6 +460,43 @@ impl WorldState for BevyWorldAdapter {
         self.world.clear_trackers();
     }
 
+    fn state_hash(&self) -> u64 {
+        use crate::components::{ShipStatsComponent, TransformComponent};
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+
+        // 1. Get all networked entities and sort by NetworkId for determinism
+        let mut nids: Vec<_> = self.bimap.iter().map(|(nid, _)| *nid).collect();
+        nids.sort();
+
+        for nid in nids {
+            nid.hash(&mut hasher);
+            if let Some(lid) = self.get_local_id(nid) {
+                let entity = bevy_ecs::prelude::Entity::from_bits(lid.0);
+
+                // Hash Transform
+                if let Some(t) = self.world.get::<TransformComponent>(entity) {
+                    t.0.x.to_bits().hash(&mut hasher);
+                    t.0.y.to_bits().hash(&mut hasher);
+                    t.0.z.to_bits().hash(&mut hasher);
+                    t.0.rotation.to_bits().hash(&mut hasher);
+                    t.0.entity_type.hash(&mut hasher);
+                }
+
+                // Hash ShipStats
+                if let Some(s) = self.world.get::<ShipStatsComponent>(entity) {
+                    s.0.hp.hash(&mut hasher);
+                    s.0.shield.hash(&mut hasher);
+                    s.0.energy.hash(&mut hasher);
+                }
+            }
+        }
+
+        hasher.finish()
+    }
+
     fn spawn_networked(&mut self) -> NetworkId {
         let id = self
             .allocator
@@ -503,23 +570,17 @@ impl WorldState for BevyWorldAdapter {
     }
 
     fn stress_test(&mut self, count: u16, rotate: bool) {
+        use rand::RngExt;
         tracing::info!(count, rotate, "Executing server-side stress test");
-        // Use a simple LCG to produce deterministic-ish pseudo-random positions
-        // without pulling in a full RNG dependency.
-        let mut seed: u32 = 0xDEAD_BEEF;
-        let lcg_next = |s: &mut u32| -> f32 {
-            *s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            // Map to [-20, 20]
-            #[allow(clippy::cast_precision_loss)]
-            let v = (*s as f32 / u32::MAX as f32) * 40.0 - 20.0;
-            v
-        };
+
         let entity_types: [u16; 5] = [1, 3, 4, 5, 6];
         for i in 0..count {
-            let x = lcg_next(&mut seed);
-            let y = lcg_next(&mut seed);
+            let x = self.rng.inner_mut().random_range(-20.0..20.0);
+            let y = self.rng.inner_mut().random_range(-20.0..20.0);
             let rot = if rotate {
-                lcg_next(&mut seed) * std::f32::consts::PI / 20.0
+                self.rng
+                    .inner_mut()
+                    .random_range(0.0..std::f32::consts::TAU)
             } else {
                 0.0
             };

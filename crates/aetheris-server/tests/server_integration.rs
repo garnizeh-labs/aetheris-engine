@@ -255,6 +255,9 @@ impl WorldState for WorldRef {
     fn clear_world(&mut self) {
         self.0.world.lock().unwrap().clear_world();
     }
+    fn state_hash(&self) -> u64 {
+        self.0.world.lock().unwrap().state_hash()
+    }
 }
 
 struct EncoderRef(SharedState);
