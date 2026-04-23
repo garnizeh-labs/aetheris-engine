@@ -135,8 +135,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let auth_service = AuthServiceImpl::new(email_sender).await;
-    let matchmaking_service = MatchmakingServiceImpl::new(Arc::new(auth_service.clone()));
+    let auth_service = Arc::new(AuthServiceImpl::new(email_sender).await);
+    let matchmaking_service = MatchmakingServiceImpl::new(auth_service.clone());
     let telemetry_service = AetherisTelemetryService::new();
 
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
@@ -246,19 +246,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             world.register_replicator(descriptor.replicator.clone());
         }
 
-        let encoder = SerdeEncoder::new();
+        let encoder = Arc::new(SerdeEncoder::new());
+        let transport = Arc::new(tokio::sync::RwLock::new(transport));
+        let world = Arc::new(std::sync::Mutex::new(world));
 
-        let mut scheduler = TickScheduler::new(tick_rate, auth_service.clone(), encode_pool);
+        let mut scheduler = TickScheduler::new(
+            u32::try_from(tick_rate).unwrap_or(60),
+            auth_service.clone(),
+            encode_pool,
+        );
         let shutdown_clone = shutdown_tx.subscribe();
 
         let scheduler_handle = tokio::spawn(async move {
             scheduler
-                .run(
-                    Box::new(transport),
-                    Box::new(world),
-                    Box::new(encoder),
-                    shutdown_clone,
-                )
+                .run(transport, world, encoder, shutdown_clone)
                 .await;
         });
 
@@ -334,7 +335,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let router = register_services(
             builder,
-            auth_service,
+            (*auth_service).clone(),
             matchmaking_service,
             telemetry_service,
         );

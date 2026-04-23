@@ -91,6 +91,7 @@ dependencies = [
  "rand 0.10.1",
  "rayon",
  "reqwest 0.13.2",
+ "rmp-serde",
  "rustls",
  "rusty_paseto",
  "serde",

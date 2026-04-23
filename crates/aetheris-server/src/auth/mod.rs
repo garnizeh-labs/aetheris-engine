@@ -6,9 +6,14 @@ use aetheris_protocol::auth::v1::{
     ConnectTokenRequest, ConnectTokenResponse, GoogleLoginNonceRequest, GoogleLoginNonceResponse,
     LoginMethod, LoginRequest, LoginResponse, LogoutRequest, LogoutResponse, OtpRequest,
     OtpRequestAck, QuicConnectToken, RefreshRequest, RefreshResponse,
-    auth_service_server::AuthService, login_request::Method,
+    auth_service_server::AuthService as GrpcAuthService, login_request::Method,
 };
 use async_trait::async_trait;
+
+#[async_trait]
+pub trait AuthService: Send + Sync {
+    async fn verify_session(&self, token: &str) -> Result<String, String>;
+}
 use base64::Engine;
 use blake2::{Blake2b, Digest, digest::consts::U32};
 use chrono::{DateTime, Duration, Utc};
@@ -211,11 +216,12 @@ impl AuthServiceImpl {
         true
     }
 
-    pub fn mint_session_token_for_test(&self, player_id: &str) -> Result<(String, u64), Status> {
-        self.mint_session_token(player_id, None)
-    }
-
-    fn mint_session_token(
+    /// Mints a new session token for the given player.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the current time cannot be formatted as RFC3339.
+    pub fn mint_session_token(
         &self,
         player_id: &str,
         jti: Option<String>,
@@ -241,6 +247,30 @@ impl AuthServiceImpl {
 
 #[async_trait]
 impl AuthService for AuthServiceImpl {
+    async fn verify_session(&self, token: &str) -> Result<String, String> {
+        let claims = PasetoParser::<V4, Local>::default()
+            .parse(token, &self.session_key)
+            .map_err(|e| format!("Token parse error: {e:?}"))?;
+
+        let jti = claims
+            .get("jti")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing JTI")?;
+        let sub = claims
+            .get("sub")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing SUB")?;
+
+        if self.is_session_authorized(jti, None) {
+            Ok(sub.to_string())
+        } else {
+            Err("Session revoked or expired".to_string())
+        }
+    }
+}
+
+#[async_trait]
+impl GrpcAuthService for AuthServiceImpl {
     async fn request_otp(
         &self,
         request: Request<OtpRequest>,

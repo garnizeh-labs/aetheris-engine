@@ -253,7 +253,7 @@ impl ComponentReplicator for InputCommandReplicator {
                             "Applied InputCommand (no actions)"
                         );
                     } else {
-                        tracing::info!(
+                        tracing::trace!(
                             network_id = update.network_id.0,
                             tick = command.tick,
                             actions = command.actions.len(),
