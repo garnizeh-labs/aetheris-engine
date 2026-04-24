@@ -284,6 +284,12 @@ impl WorldState for BevyWorldAdapter {
         let dt = 1.0 / self.tick_rate as f32;
 
         // Stage 1: Auth Newtonian Physics + Input Application (M1015/M1020/M1038)
+        let server_tick = self
+            .world
+            .get_resource::<crate::components::ServerTick>()
+            .map_or(0, |t| t.0);
+        let log_this_tick = server_tick.is_multiple_of(60);
+
         let mut query = self.world.query::<(
             &mut Velocity,
             &mut TransformComponent,
@@ -388,22 +394,15 @@ impl WorldState for BevyWorldAdapter {
                 }
             }
 
-            // Diagnostic: Log movement
-            thread_local! {
-                static MOVE_LOG_COUNT: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+            // Diagnostic: Log movement (Tick-sampled gate — M1020)
+            if log_this_tick && speed_sq > 0.001 {
+                tracing::debug!(
+                    ?network_id,
+                    x = transform.0.x,
+                    y = transform.0.y,
+                    "Authoritative Position Update"
+                );
             }
-            MOVE_LOG_COUNT.with(|count| {
-                let current = count.get();
-                if current % 60 == 0 && speed_sq > 0.001 {
-                    tracing::info!(
-                        ?network_id,
-                        x = transform.0.x,
-                        y = transform.0.y,
-                        "Authoritative Position Update"
-                    );
-                }
-                count.set(current + 1);
-            });
         }
 
         // Room Bounds Enforcement (Stage 3 Simulate)

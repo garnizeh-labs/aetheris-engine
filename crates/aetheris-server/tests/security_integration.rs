@@ -190,12 +190,6 @@ async fn test_entity_hijacking_prevention() {
     });
 
     // Wait for auth & spawn (be more generous and wait until entities exist)
-    // IDs 1-11 are taken by the room and 10 asteroids spawned in setup_world.
-    let nid_a = NetworkId(12);
-    let nid_b = NetworkId(13);
-
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
     {
         let t = state.transport.lock().await;
         let serde_encoder = aetheris_encoder_serde::SerdeEncoder::new();
@@ -214,25 +208,50 @@ async fn test_entity_hijacking_prevention() {
         });
     }
 
-    let mut attempts = 0;
-    loop {
-        {
-            let adapter = shared_adapter.lock().unwrap();
-            if adapter.get_local_id(nid_a).is_some() && adapter.get_local_id(nid_b).is_some() {
-                break;
+    let (nid_a, nid_b) = {
+        let mut nid_a = None;
+        let mut nid_b = None;
+        let mut attempts = 0;
+        loop {
+            {
+                let mut adapter = shared_adapter.lock().unwrap();
+                let entities_and_owners = {
+                    let world = adapter.world_mut();
+                    let mut query = world.query::<(
+                        bevy_ecs::prelude::Entity,
+                        &aetheris_ecs_bevy::components::NetworkOwner,
+                        &aetheris_ecs_bevy::components::SessionShip,
+                    )>();
+                    query
+                        .iter(world)
+                        .map(|(e, o, _)| (e, o.0))
+                        .collect::<Vec<_>>()
+                };
+
+                for (entity, owner_cid) in entities_and_owners {
+                    let nid = adapter
+                        .get_network_id(aetheris_protocol::types::LocalId(entity.to_bits()))
+                        .unwrap();
+                    if owner_cid == cid_a {
+                        nid_a = Some(nid);
+                    } else if owner_cid == cid_b {
+                        nid_b = Some(nid);
+                    }
+                }
+            }
+            if let (Some(a), Some(b)) = (nid_a, nid_b) {
+                break (a, b);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            attempts += 1;
+            if attempts > 40 {
+                panic!(
+                    "Entities did not spawn in time! A: {:?}, B: {:?}",
+                    nid_a, nid_b
+                );
             }
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        attempts += 1;
-        if attempts > 20 {
-            let adapter = shared_adapter.lock().unwrap();
-            panic!(
-                "Entities did not spawn in time! A: {:?}, B: {:?}",
-                adapter.get_local_id(nid_a),
-                adapter.get_local_id(nid_b)
-            );
-        }
-    }
+    };
 
     // Client A owns Entity 1, Client B owns Entity 2.
 

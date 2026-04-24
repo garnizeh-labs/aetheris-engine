@@ -197,7 +197,7 @@ impl InputCommandReplicator {
         let has_owner = world.get::<NetworkOwner>(entity).is_some();
         let has_session = world.get::<SessionShip>(entity).is_some();
 
-        tracing::info!(
+        tracing::debug!(
             network_id = nid.0,
             has_owner,
             has_session,
@@ -279,14 +279,14 @@ impl InputCommandReplicator {
                     latest.last_client_tick = command.tick;
 
                     if command.actions.is_empty() {
-                        tracing::info!(
+                        tracing::debug!(
                             network_id = nid.0,
                             tick = command.tick,
                             old_tick,
                             "[InputCmd] Updated InputCommand (no actions)"
                         );
                     } else {
-                        tracing::info!(
+                        tracing::debug!(
                             network_id = nid.0,
                             tick = command.tick,
                             old_tick,
@@ -312,7 +312,7 @@ impl InputCommandReplicator {
 
                 command.tick = capped_tick;
 
-                tracing::info!(
+                tracing::debug!(
                     network_id = nid.0,
                     client_tick = command.tick,
                     server_tick,
