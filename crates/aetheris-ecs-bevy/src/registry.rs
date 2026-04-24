@@ -174,67 +174,96 @@ impl ComponentReplicator for InputCommandReplicator {
     }
 
     fn apply(&self, world: &mut World, entity: Entity, update: &ComponentUpdate) {
-        use crate::components::LatestInput;
-        use crate::components::NetworkOwner;
-        use crate::components::ServerTick;
-        use crate::components::SessionShip;
-        use aetheris_protocol::types::InputCommand;
+        // 1. Verify Ownership and Session (M1013 §4.2)
+        if !Self::validate_access_gate(world, entity, update.network_id) {
+            return;
+        }
 
-        // 1. Verify Ownership (M1013 §4.2)
-        // Entities missing Ownership(ClientId) MUST reject all client updates.
-        // This provides defense-in-depth even if the caller (Adapter) skipped the check.
+        // 2. Deserialize and Validate Command
+        let Some(command) = Self::deserialize_command(&update.payload, update.network_id) else {
+            return;
+        };
+
+        // 3. Apply Update to World State
+        Self::apply_command_update(world, entity, update.network_id, command);
+    }
+}
+
+impl InputCommandReplicator {
+    /// Validates that the entity exists, has an owner, and is a session ship.
+    fn validate_access_gate(world: &World, entity: Entity, nid: NetworkId) -> bool {
+        use crate::components::{NetworkOwner, SessionShip};
+
         let has_owner = world.get::<NetworkOwner>(entity).is_some();
         let has_session = world.get::<SessionShip>(entity).is_some();
+
         tracing::info!(
-            network_id = update.network_id.0,
+            network_id = nid.0,
             has_owner,
             has_session,
             "[InputCmd] gate check"
         );
+
         if !has_owner {
             tracing::warn!(
-                network_id = update.network_id.0,
+                network_id = nid.0,
                 "Rejected InputCommand: Entity missing Ownership"
             );
-            return;
+            return false;
         }
 
-        // 2. Possession gate — only the session ship may receive InputCommands.
-        // Playground entities spawned via NetworkEvent::Spawn intentionally lack the
-        // SessionShip marker, preventing the client from controlling them even if the
-        // client_id matches (ownership passes) but the entity is not the session ship.
         if !has_session {
             tracing::warn!(
-                network_id = update.network_id.0,
+                network_id = nid.0,
                 has_owner,
                 "[InputCmd] REJECTED: Entity is not a session ship (missing SessionShip marker)"
             );
-            return;
+            return false;
         }
 
-        let mut command = match rmp_serde::from_slice::<InputCommand>(&update.payload) {
+        true
+    }
+
+    /// Deserializes and validates the input command from the network payload.
+    fn deserialize_command(
+        payload: &[u8],
+        nid: NetworkId,
+    ) -> Option<aetheris_protocol::types::InputCommand> {
+        use aetheris_protocol::types::InputCommand;
+
+        match rmp_serde::from_slice::<InputCommand>(payload) {
             Ok(cmd) => {
                 if let Err(e) = cmd.validate() {
                     tracing::warn!(
-                        network_id = update.network_id.0,
+                        network_id = nid.0,
                         error = e,
                         "Rejected InputCommand: Validation failed"
                     );
-                    return;
+                    None
+                } else {
+                    Some(cmd)
                 }
-                cmd
             }
             Err(e) => {
                 tracing::warn!(
-                    network_id = update.network_id.0,
+                    network_id = nid.0,
                     error = ?e,
                     "Rejected InputCommand: Deserialization failed"
                 );
-                return;
+                None
             }
-        };
+        }
+    }
 
-        // Fetch server tick before borrowing entity mutably to avoid borrow checker conflicts
+    /// Updates the entity's `LatestInput` component with anti-replay and synchronization logic.
+    fn apply_command_update(
+        world: &mut World,
+        entity: Entity,
+        nid: NetworkId,
+        mut command: aetheris_protocol::types::InputCommand,
+    ) {
+        use crate::components::{LatestInput, ServerTick};
+
         let server_tick = world.get_resource::<ServerTick>().map_or(0, |t| t.0);
 
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
@@ -248,16 +277,17 @@ impl ComponentReplicator for InputCommandReplicator {
                 {
                     let old_tick = latest.last_client_tick;
                     latest.last_client_tick = command.tick;
+
                     if command.actions.is_empty() {
                         tracing::info!(
-                            network_id = update.network_id.0,
+                            network_id = nid.0,
                             tick = command.tick,
                             old_tick,
                             "[InputCmd] Updated InputCommand (no actions)"
                         );
                     } else {
                         tracing::info!(
-                            network_id = update.network_id.0,
+                            network_id = nid.0,
                             tick = command.tick,
                             old_tick,
                             actions = command.actions.len(),
@@ -267,7 +297,7 @@ impl ComponentReplicator for InputCommandReplicator {
                     latest.command = command;
                 } else {
                     tracing::warn!(
-                        network_id = update.network_id.0,
+                        network_id = nid.0,
                         client_tick = command.tick,
                         last_tick = latest.last_client_tick,
                         max_jump = MAX_FORWARD_TICK_JUMP,
@@ -276,16 +306,14 @@ impl ComponentReplicator for InputCommandReplicator {
                 }
             } else {
                 // First input for this entity: validate against authoritative server tick
-                // Allow some leeway for initial connection RTT, but cap the forward jump
                 let capped_tick = command
                     .tick
                     .min(server_tick.saturating_add(MAX_FORWARD_TICK_JUMP));
 
-                // Synchronize command tick with capped_tick for consistency
                 command.tick = capped_tick;
 
                 tracing::info!(
-                    network_id = update.network_id.0,
+                    network_id = nid.0,
                     client_tick = command.tick,
                     server_tick,
                     capped_tick,
@@ -298,7 +326,7 @@ impl ComponentReplicator for InputCommandReplicator {
             }
         } else {
             tracing::error!(
-                network_id = update.network_id.0,
+                network_id = nid.0,
                 "Failed to get entity_mut for InputCommand"
             );
         }

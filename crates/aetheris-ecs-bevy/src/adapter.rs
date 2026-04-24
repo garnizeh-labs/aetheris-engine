@@ -312,7 +312,7 @@ impl WorldState for BevyWorldAdapter {
                         move_y = *y;
                     }
                 }
-                
+
                 if move_x.abs() > 0.001 || move_y.abs() > 0.001 {
                     tracing::info!(
                         ?network_id,
@@ -371,8 +371,12 @@ impl WorldState for BevyWorldAdapter {
 
                 // Calculate shortest angular distance
                 let mut delta = target_rotation - current_rotation;
-                while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
-                while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
+                while delta > std::f32::consts::PI {
+                    delta -= std::f32::consts::TAU;
+                }
+                while delta < -std::f32::consts::PI {
+                    delta += std::f32::consts::TAU;
+                }
 
                 let turn_speed = physics.turn_rate.to_radians(); // turn_rate is in deg/s
                 let max_turn = turn_speed * dt;
@@ -386,7 +390,7 @@ impl WorldState for BevyWorldAdapter {
 
             // Diagnostic: Log movement
             thread_local! {
-                static MOVE_LOG_COUNT: core::cell::Cell<u64> = core::cell::Cell::new(0);
+                static MOVE_LOG_COUNT: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
             }
             MOVE_LOG_COUNT.with(|count| {
                 let current = count.get();
@@ -425,10 +429,12 @@ impl WorldState for BevyWorldAdapter {
                 let height = bounds.max_y - bounds.min_y;
 
                 if width > 0.0 {
-                    transform.0.x = ((transform.0.x - bounds.min_x).rem_euclid(width)) + bounds.min_x;
+                    transform.0.x =
+                        ((transform.0.x - bounds.min_x).rem_euclid(width)) + bounds.min_x;
                 }
                 if height > 0.0 {
-                    transform.0.y = ((transform.0.y - bounds.min_y).rem_euclid(height)) + bounds.min_y;
+                    transform.0.y =
+                        ((transform.0.y - bounds.min_y).rem_euclid(height)) + bounds.min_y;
                 }
             }
         }
@@ -897,6 +903,7 @@ impl WorldState for BevyWorldAdapter {
             // VS-06: Spawn some visual reference points (asteroids)
             // This ensures the player can see they are moving relative to something.
             for i in 0..10 {
+                #[allow(clippy::cast_precision_loss)]
                 let angle = (i as f32) * std::f32::consts::TAU / 10.0;
                 let radius = 20.0;
                 let x = angle.cos() * radius;

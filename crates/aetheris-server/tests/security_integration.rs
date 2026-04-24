@@ -190,8 +190,9 @@ async fn test_entity_hijacking_prevention() {
     });
 
     // Wait for auth & spawn (be more generous and wait until entities exist)
-    let nid_a = NetworkId(2);
-    let nid_b = NetworkId(3);
+    // IDs 1-11 are taken by the room and 10 asteroids spawned in setup_world.
+    let nid_a = NetworkId(12);
+    let nid_b = NetworkId(13);
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
