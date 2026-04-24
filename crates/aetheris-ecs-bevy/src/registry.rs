@@ -264,7 +264,17 @@ impl InputCommandReplicator {
     ) {
         use crate::components::{LatestInput, ServerTick};
 
-        let server_tick = world.get_resource::<ServerTick>().map_or(0, |t| t.0);
+        let server_tick = world.get_resource::<ServerTick>().map_or_else(
+            || {
+                tracing::warn!(
+                    network_id = nid.0,
+                    "[InputCmd] ServerTick resource missing — defaulting to 0. \
+                     Initialization may be incomplete."
+                );
+                0
+            },
+            |t| t.0,
+        );
 
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             if let Some(mut latest) = entity_mut.get_mut::<LatestInput>() {
@@ -774,6 +784,38 @@ mod tests {
             world.get::<LatestInput>(entity).unwrap().last_client_tick,
             100
         );
+    }
+
+    #[test]
+    fn test_input_replicator_no_session_ship() {
+        use crate::components::{LatestInput, NetworkOwner};
+        use aetheris_protocol::events::ComponentUpdate;
+        use aetheris_protocol::types::{ClientId, ComponentKind, InputCommand, NetworkId};
+
+        let mut world = World::new();
+        // Entity has owner but LACKS SessionShip
+        let entity = world.spawn(NetworkOwner(ClientId(1))).id();
+        let replicator = InputCommandReplicator;
+
+        let cmd = InputCommand {
+            tick: 100,
+            actions: vec![],
+            last_seen_input_tick: None,
+        };
+
+        replicator.apply(
+            &mut world,
+            entity,
+            &ComponentUpdate {
+                network_id: NetworkId(1),
+                component_kind: ComponentKind(128),
+                payload: rmp_serde::to_vec(&cmd).unwrap(),
+                tick: 0,
+            },
+        );
+
+        // Should not have created LatestInput because SessionShip was missing
+        assert!(world.get::<LatestInput>(entity).is_none());
     }
 
     #[test]
