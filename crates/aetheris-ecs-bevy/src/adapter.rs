@@ -419,25 +419,16 @@ impl WorldState for BevyWorldAdapter {
         for (mut transform, membership) in avatar_query.iter_mut(&mut self.world) {
             let room_id = membership.0.0;
             if let Some((_, bounds)) = rooms.iter().find(|(nid, _)| *nid == room_id) {
-                let mut clamped = false;
-                if transform.0.x < bounds.min_x {
-                    transform.0.x = bounds.min_x;
-                    clamped = true;
+                // Toroidal wrapping (M1020 - Infinite Playground)
+                // Use rem_euclid to handle negative coordinates correctly.
+                let width = bounds.max_x - bounds.min_x;
+                let height = bounds.max_y - bounds.min_y;
+
+                if width > 0.0 {
+                    transform.0.x = ((transform.0.x - bounds.min_x).rem_euclid(width)) + bounds.min_x;
                 }
-                if transform.0.x > bounds.max_x {
-                    transform.0.x = bounds.max_x;
-                    clamped = true;
-                }
-                if transform.0.y < bounds.min_y {
-                    transform.0.y = bounds.min_y;
-                    clamped = true;
-                }
-                if transform.0.y > bounds.max_y {
-                    transform.0.y = bounds.max_y;
-                    clamped = true;
-                }
-                if clamped {
-                    // Optional: zero velocity or handle bumping
+                if height > 0.0 {
+                    transform.0.y = ((transform.0.y - bounds.min_y).rem_euclid(height)) + bounds.min_y;
                 }
             }
         }

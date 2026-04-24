@@ -121,6 +121,9 @@ pub struct RoomBounds {
     /// Axis-Aligned Bounding Box defined by min and max corners.
     pub min: Vec3,
     pub max: Vec3,
+    /// Toroidal wrapping: if true, entities crossing bounds wrap around.
+    /// (Currently implicitly true in the Playground simulation).
+    pub wrap_enabled: bool,
 }
 
 /// Current membership list. Updated by the Room system.
