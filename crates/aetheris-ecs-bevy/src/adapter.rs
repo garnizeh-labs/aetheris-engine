@@ -64,6 +64,7 @@ impl BevyWorldAdapter {
         adapter
             .world
             .insert_resource(crate::components::RoomIndex::default());
+        adapter.world.insert_resource(adapter.rng.clone());
         adapter
     }
 
@@ -92,6 +93,7 @@ impl BevyWorldAdapter {
         adapter
             .world
             .insert_resource(crate::components::RoomIndex::default());
+        adapter.world.insert_resource(adapter.rng.clone());
         adapter
     }
 
@@ -711,9 +713,15 @@ impl WorldState for BevyWorldAdapter {
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
-                        capacity: 50,
+                        capacity: 500,
                     },
-                    crate::components::MiningBeam::default(),
+                    crate::components::MiningBeam {
+                        active: false,
+                        target: None,
+                        mining_range: 15.0,
+                        base_mining_rate: 2, // Slower pacing
+                        last_seen_input_tick: None,
+                    },
                     crate::components::PlayerName {
                         name: "Player".to_string(),
                     },
@@ -743,7 +751,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
-                        capacity: 100,
+                        capacity: 500,
                     },
                     crate::components::MiningBeam::default(),
                     crate::components::PlayerName {
@@ -787,8 +795,8 @@ impl WorldState for BevyWorldAdapter {
                 // Mining Asteroid (Kind 5 from renderer/UI)
                 entity_mut.insert((
                     crate::components::Asteroid {
-                        ore_remaining: 1000,
-                        total_capacity: 1000,
+                        ore_remaining: 100,
+                        total_capacity: 100,
                     },
                     crate::components::AsteroidHP {
                         hp: 500,
@@ -899,16 +907,8 @@ impl WorldState for BevyWorldAdapter {
                 RoomMembershipComponent(aetheris_protocol::types::RoomMembership(room_nid)),
             ));
 
-            // VS-06: Spawn some visual reference points (asteroids)
-            // This ensures the player can see they are moving relative to something.
-            for i in 0..10 {
-                #[allow(clippy::cast_precision_loss)]
-                let angle = (i as f32) * std::f32::consts::TAU / 10.0;
-                let radius = 20.0;
-                let x = angle.cos() * radius;
-                let y = angle.sin() * radius;
-                self.spawn_kind(5, x, y, 0.0); // 5 = Asteroid
-            }
+            // VS-02 refinement: spawn a single authoritative asteroid at (30, 0)
+            self.spawn_kind(5, 30.0, 0.0, 0.0);
         }
     }
 

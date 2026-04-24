@@ -1,8 +1,7 @@
 use crate::components::{
-    Asteroid, AsteroidRespawn, CargoHold, MiningBeam, NetworkOwner, ReliableEvents,
+    Asteroid, AsteroidRespawn, CargoHold, MiningBeam, NetworkOwner, ReliableEvents, ServerTick,
     TransformComponent,
 };
-use crate::physics_consts::{MINING_ORE_PER_TICK, MINING_RANGE};
 use aetheris_protocol::events::GameEvent;
 use aetheris_protocol::types::NetworkId;
 use bevy_ecs::prelude::{Entity, World};
@@ -16,10 +15,14 @@ use bimap::BiHashMap;
 /// 3. Resource depletion.
 #[allow(clippy::missing_panics_doc)]
 pub fn process_mining(world: &mut World, bimap: &BiHashMap<NetworkId, Entity>) -> Vec<Entity> {
-    let mut transfers = Vec::new();
+    let mut transfers = Vec::new(); // (Ship, Asteroid, Amount)
     let mut to_despawn = Vec::new();
+    let mut beams_to_disable = Vec::new();
 
-    // 1. Collect all mining attempts
+    let server_tick = world.get_resource::<ServerTick>().map_or(0, |t| t.0);
+
+    // 1. Collect all potential mining attempts without borrowing World mutably yet
+    let mut potential_attempts = Vec::new();
     {
         let mut query = world.query::<(Entity, &MiningBeam, &TransformComponent, &CargoHold)>();
         for (entity, beam, transform, cargo) in query.iter(world) {
@@ -27,50 +30,86 @@ pub fn process_mining(world: &mut World, bimap: &BiHashMap<NetworkId, Entity>) -
                 continue;
             }
 
-            let Some(target_id) = beam.target else {
-                continue;
-            };
-
-            let Some(&target_entity) = bimap.get_by_left(&target_id) else {
-                continue;
-            };
-
-            // Check if target is an asteroid
-            let target_data = world.get_entity(target_entity).ok();
-            let mut asteroid_data = None;
-            let mut target_transform = None;
-
-            if let Some(data) = target_data {
-                asteroid_data = data.get::<Asteroid>();
-                target_transform = data.get::<TransformComponent>();
-            }
-
-            if let (Some(asteroid), Some(t_transform)) = (asteroid_data, target_transform) {
-                // Range validation
-                let dx = transform.0.x - t_transform.0.x;
-                let dy = transform.0.y - t_transform.0.y;
-                let dist_sq = dx * dx + dy * dy;
-
-                if dist_sq <= MINING_RANGE * MINING_RANGE
-                    && asteroid.ore_remaining > 0
-                    && cargo.ore_count < cargo.capacity
-                {
-                    transfers.push((entity, target_entity));
+            if let Some(target_id) = beam.target {
+                if let Some(&target_entity) = bimap.get_by_left(&target_id) {
+                    potential_attempts.push((entity, target_entity, *transform, *cargo, *beam));
+                } else {
+                    beams_to_disable.push(entity);
                 }
+            } else {
+                beams_to_disable.push(entity);
             }
         }
     }
 
-    // 2. Execute transfers
-    for (ship_entity, asteroid_entity) in transfers {
+    // 2. Validate against targets
+    for (ship_entity, target_entity, transform, cargo, beam) in potential_attempts {
+        let target_data = world.get_entity(target_entity).ok();
+        let mut asteroid_data = None;
+        let mut target_transform = None;
+
+        if let Some(data) = target_data {
+            asteroid_data = data.get::<Asteroid>();
+            target_transform = data.get::<TransformComponent>();
+        }
+
+        if let (Some(asteroid), Some(t_transform)) = (asteroid_data, target_transform) {
+            // Range validation
+            let dx = t_transform.0.x - transform.0.x;
+            let dy = t_transform.0.y - transform.0.y;
+            let dist_sq = dx * dx + dy * dy;
+
+            if dist_sq > beam.mining_range * beam.mining_range {
+                beams_to_disable.push(ship_entity);
+                continue;
+            }
+
+            // Cargo full validation
+            if cargo.ore_count >= cargo.capacity {
+                beams_to_disable.push(ship_entity);
+                continue;
+            }
+
+            // VS-02 — No more arc validation. Radial proximity only.
+            if asteroid.ore_remaining > 0 {
+                // To slow down mining even further, we only mine every 10 ticks (6 times per second)
+                if server_tick.is_multiple_of(10) {
+                    let dist = dist_sq.sqrt();
+                    // Efficiency: linear falloff from 1.0 (at dist 0) to 0.0 (at mining_range)
+                    // Min efficiency of 0.1 to avoid total stall at range edge.
+                    let efficiency = (1.0 - (dist / beam.mining_range)).max(0.1);
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let amount = (f32::from(beam.base_mining_rate) * efficiency).round() as u16;
+                    let amount = amount.max(1); // At least 1 per 10 ticks if active
+
+                    transfers.push((ship_entity, target_entity, amount));
+                }
+            }
+        } else {
+            beams_to_disable.push(ship_entity);
+        }
+    }
+
+    // 3. Apply state changes
+    for entity in beams_to_disable {
+        if let Some(mut beam) = world.get_mut::<MiningBeam>(entity) {
+            beam.active = false;
+            tracing::debug!(?entity, "Mining beam disabled due to validation failure");
+        }
+    }
+
+    // Execute transfers
+    for (ship_entity, asteroid_entity, base_amount) in transfers {
         let (ore_to_add, ore_to_remove) = {
-            let ship_mut = world.get_entity(ship_entity).unwrap();
-            let cargo = ship_mut.get::<CargoHold>().unwrap();
+            let ship = world.get_entity(ship_entity).unwrap();
+            let cargo = ship.get::<CargoHold>().unwrap();
+            let asteroid = world
+                .get_entity(asteroid_entity)
+                .unwrap()
+                .get::<Asteroid>()
+                .unwrap();
 
-            let asteroid_mut = world.get_entity(asteroid_entity).unwrap();
-            let asteroid = asteroid_mut.get::<Asteroid>().unwrap();
-
-            let amount = MINING_ORE_PER_TICK
+            let amount = base_amount
                 .min(asteroid.ore_remaining)
                 .min(cargo.capacity - cargo.ore_count);
 
@@ -88,7 +127,6 @@ pub fn process_mining(world: &mut World, bimap: &BiHashMap<NetworkId, Entity>) -
             let mut asteroid = asteroid_mut.get_mut::<Asteroid>().unwrap();
             asteroid.ore_remaining -= ore_to_remove;
 
-            // M1062 — Observability: Track ore transfer
             if let Some(client_id) = owner {
                 metrics::counter!("aetheris_mining_ore_transferred_total", "client_id" => client_id)
                     .increment(u64::from(ore_to_add));
@@ -99,7 +137,7 @@ pub fn process_mining(world: &mut World, bimap: &BiHashMap<NetworkId, Entity>) -
         }
     }
 
-    // 3. Asteroid Depletion (VS-02 spec)
+    // 4. Asteroid Depletion
     handle_asteroid_depletion(world, bimap, &mut to_despawn);
 
     to_despawn
@@ -111,6 +149,9 @@ fn handle_asteroid_depletion(
     bimap: &BiHashMap<NetworkId, Entity>,
     to_despawn: &mut Vec<Entity>,
 ) {
+    use crate::deterministic_rng::DeterministicRng;
+    use rand::RngExt;
+
     let mut depleted = Vec::new();
     {
         let mut query = world.query::<(Entity, &Asteroid, &TransformComponent)>();
@@ -135,19 +176,29 @@ fn handle_asteroid_depletion(
                     },
                 ));
 
+                // Deterministic offset calculation
+                let mut rng_res = world.get_resource_mut::<DeterministicRng>().unwrap();
+                let offset_x = rng_res.inner_mut().random_range(-15.0..15.0);
+                let offset_y = rng_res.inner_mut().random_range(-15.0..15.0);
+
                 // Spawn respawn tracker (300 ticks)
                 trackers_to_spawn.push(AsteroidRespawn {
                     delay_ticks: 300,
                     remaining: 301,
-                    x: transform.0.x,
-                    y: transform.0.y,
+                    x: transform.0.x + offset_x,
+                    y: transform.0.y + offset_y,
                     total_capacity: capacity,
                 });
 
                 // M1062 — Observability: Track depletion
                 metrics::counter!("aetheris_asteroid_depletions_total").increment(1);
 
-                tracing::info!(?network_id, "Asteroid depleted and queued for respawn");
+                tracing::info!(
+                    ?network_id,
+                    "Asteroid depleted and queued for respawn at ({:.2}, {:.2})",
+                    transform.0.x + offset_x,
+                    transform.0.y + offset_y
+                );
 
                 to_despawn.push(entity);
             }

@@ -19,9 +19,3 @@ pub const DEFAULT_DRAG: f32 = 2.0;
 
 /// Mass added to the entity for each unit of ore in the `CargoHold` (c).
 pub const MASS_PER_ORE: f32 = 2.0;
-
-/// Maximum range for the mining beam (meters).
-pub const MINING_RANGE: f32 = 15.0;
-
-/// Amount of ore transferred per simulation tick.
-pub const MINING_ORE_PER_TICK: u16 = 1;

@@ -4,6 +4,7 @@ use rand_chacha::ChaCha8Rng;
 /// A deterministic random number generator wrapper.
 ///
 /// VS-07 §3.4: Uses `ChaCha8Rng` for cross-platform determinism as per `DETERMINISM_DESIGN` D2.
+#[derive(bevy_ecs::prelude::Resource, Clone)]
 pub struct DeterministicRng {
     inner: ChaCha8Rng,
 }
