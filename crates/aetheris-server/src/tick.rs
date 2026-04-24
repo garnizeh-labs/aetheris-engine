@@ -499,7 +499,7 @@ impl TickScheduler {
                                 tracing::info!(
                                     ?client_id,
                                     network_id = network_id.0,
-                                    "[StartSession] Session ship assigned — Possession sent"
+                                    "[StartSession] Session ship assigned (spawned or reused) — Possession event queued"
                                 );
                             }
                         }

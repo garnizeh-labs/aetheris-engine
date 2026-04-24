@@ -276,6 +276,9 @@ When an invariant fires, the violation is:
 
 **Clamp-and-continue** is the P1 strategy for invariant violations. The attacker does not benefit from the violation (their speed is clamped) but is not banned immediately. The Audit Worker accumulates violation events and raises the entity's SuspicionScore, which eventually triggers a kick or ban.
 
+> [!NOTE]
+> **Boundary Wrapping (Toroidal World)**: Velocity invariants and position clamps must account for room-level toroidal wrapping. A jump from one extreme of the `RoomBounds` to the other (e.g., -250.0 to 250.0) is a valid simulation rule and MUST NOT be flagged as a `VelocityExceeded` violation if the delta corresponds to a wrap-around event.
+
 ---
 
 ## 6. Layer 3 — Cryptographic Integrity (Merkle Chain)

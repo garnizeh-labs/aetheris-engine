@@ -118,10 +118,14 @@ pub struct RoomDefinition {
 /// Spatial bounds of the room in world coordinates.
 #[derive(Component, Replicate, Debug, Clone)]
 pub struct RoomBounds {
-    /// Axis-Aligned Bounding Box defined by min and max corners.
-    pub min: Vec3,
-    pub max: Vec3,
+    pub min_x: f32,
+    pub min_y: f32,
+    pub max_x: f32,
+    pub max_y: f32,
 }
+
+> [!NOTE]
+> **Toroidal Wrapping:** Toroidal wrapping is currently implemented within the Bevy adapter's simulation logic ([`adapter.rs:simulate`](../crates/aetheris-ecs-bevy/src/adapter.rs)), which enforces wrapping for all entities with a `RoomMembership` component based on the target room's bounds. Exposing `wrap_enabled` as a protocol-level property in `RoomBounds` is a planned future change to allow per-room configuration.
 
 /// Current membership list. Updated by the Room system.
 #[derive(Component, Replicate, Debug, Clone)]
@@ -174,8 +178,10 @@ let arena_id = world.spawn_networked(vec![
         tenant_id: None,
     }),
     Box::new(RoomBounds {
-        min: Vec3::new(4500.0, -100.0, 4500.0),
-        max: Vec3::new(5500.0, 100.0, 5500.0),
+        min_x: 4500.0,
+        min_y: 4500.0,
+        max_x: 5500.0,
+        max_y: 5500.0,
     }),
     Box::new(RoomMembership {
         members: SmallVec::new(),
@@ -197,8 +203,10 @@ let meeting_id = world.spawn_networked(vec![
         tenant_id: Some(TenantId(42)),
     }),
     Box::new(RoomBounds {
-        min: Vec3::new(140.0, 0.0, 290.0),
-        max: Vec3::new(160.0, 3.0, 310.0),
+        min_x: 140.0,
+        min_y: 290.0,
+        max_x: 160.0,
+        max_y: 310.0,
     }),
     Box::new(RoomMembership::default()),
     Box::new(RoomChannelOverrides {
