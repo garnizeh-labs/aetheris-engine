@@ -125,7 +125,7 @@ pub struct RoomBounds {
 }
 
 > [!NOTE]
-> **Toroidal Wrapping:** In the current engine version, toroidal wrapping is hard-coded within the Bevy adapter's simulation logic and is applied exclusively to the "Playground" instance. Future versions may expose `wrap_enabled` as a protocol-level property.
+> **Toroidal Wrapping:** Toroidal wrapping is currently implemented within the Bevy adapter's simulation logic ([`adapter.rs:simulate`](../crates/aetheris-ecs-bevy/src/adapter.rs)), which enforces wrapping for all entities with a `RoomMembership` component based on the target room's bounds. Exposing `wrap_enabled` as a protocol-level property in `RoomBounds` is a planned future change to allow per-room configuration.
 
 /// Current membership list. Updated by the Room system.
 #[derive(Component, Replicate, Debug, Clone)]

@@ -306,15 +306,15 @@ impl InputCommandReplicator {
                 }
             } else {
                 // First input for this entity: validate against authoritative server tick
-                let capped_tick = command
-                    .tick
-                    .min(server_tick.saturating_add(MAX_FORWARD_TICK_JUMP));
+                let original_tick = command.tick;
+                let capped_tick =
+                    original_tick.min(server_tick.saturating_add(MAX_FORWARD_TICK_JUMP));
 
                 command.tick = capped_tick;
 
                 tracing::debug!(
                     network_id = nid.0,
-                    client_tick = command.tick,
+                    client_tick = original_tick,
                     server_tick,
                     capped_tick,
                     "[InputCmd] First input for entity — Inserting LatestInput"
