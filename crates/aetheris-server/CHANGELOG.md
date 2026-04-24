@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.8.2] - 2026-04-24
+
+### 🚜 Refactor
+
+- Modularize input command processing and improve safety in ECS adapter logic
+- Reduce log noise by demoting diagnostic levels, improve integration test robustness, and update RoomBounds schema
+
+### ⚙️ Miscellaneous Tasks
+
+- Vs-01 refinement - sync with client hardening
 ## [0.8.1] - 2026-04-23
 
 ### 🚀 Features
