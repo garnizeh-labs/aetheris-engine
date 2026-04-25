@@ -104,6 +104,7 @@ pub struct JumpGate {
 pub struct ProjectileMarker {
     pub projectile_type: ProjectileType,
     pub origin_tick: u64,
+    pub owner: NetworkId,
 }
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
