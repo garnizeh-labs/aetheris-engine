@@ -177,9 +177,15 @@ fn handle_asteroid_depletion(
                 ));
 
                 // Deterministic offset calculation
-                let mut rng_res = world.get_resource_mut::<DeterministicRng>().unwrap();
-                let offset_x = rng_res.inner_mut().random_range(-15.0..15.0);
-                let offset_y = rng_res.inner_mut().random_range(-15.0..15.0);
+                let (offset_x, offset_y) = if let Some(mut rng_res) = world.get_resource_mut::<DeterministicRng>() {
+                    (
+                        rng_res.inner_mut().random_range(-15.0..15.0),
+                        rng_res.inner_mut().random_range(-15.0..15.0),
+                    )
+                } else {
+                    tracing::warn!("DeterministicRng resource missing in mining offset calculation; using zero offset");
+                    (0.0, 0.0)
+                };
 
                 // Spawn respawn tracker (300 ticks)
                 trackers_to_spawn.push(AsteroidRespawn {
