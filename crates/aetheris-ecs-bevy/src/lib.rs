@@ -8,6 +8,7 @@ pub use components::*;
 pub use registry::{ComponentReplicator, DefaultReplicator, ReplicatableComponent};
 
 mod adapter;
+pub mod combat;
 pub mod components;
 pub mod deterministic_rng;
 pub mod mining;

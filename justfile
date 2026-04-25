@@ -45,6 +45,11 @@ fix:
 test:
     cargo nextest run --workspace --profile ci
 
+# Run only combat loop integration tests
+[group('test')]
+test-combat:
+    cargo nextest run -p aetheris-ecs-bevy --test combat_tests
+
 # Run a full stress test cycle and persist results in stress_results/<timestamp>
 [group('test')]
 stress clients='50' duration='30':

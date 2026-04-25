@@ -36,14 +36,10 @@ version = "0.9.0"
 [[package]]
 name = "aetheris-encoder-bitpack"
 version = "0.2.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f69d7b15ab6697936e027910a8c66fc5ccb2f6bb2abe2ac9e5999f3cc32e9c77"
 
 [[package]]
 name = "aetheris-encoder-serde"
 version = "0.2.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0998bd2ed9ddd55b179fe16e79bf011e1f7a65078c37bd4fb03ca7d61e2342c"
 dependencies = [
  "aetheris-protocol",
  "metrics",
@@ -55,8 +51,6 @@ dependencies = [
 [[package]]
 name = "aetheris-protocol"
 version = "0.2.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc5cf24f5a57eec9cd6b5f5fd445530893c1a60122010519300c52a223328475"
 dependencies = [
  "async-trait",
  "prost",

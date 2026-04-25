@@ -12,8 +12,9 @@ use aetheris_protocol::types::{
 
 use crate::Networked;
 use crate::components::{
-    LatestInput, PhysicsBody, RoomBoundsComponent, RoomDefinitionComponent,
-    RoomMembershipComponent, ShipClassComponent, ShipStatsComponent, TransformComponent, Velocity,
+    HullPoolComponent, LatestInput, PhysicsBody, RoomBoundsComponent, RoomDefinitionComponent,
+    RoomMembershipComponent, ShieldPoolComponent, ShipClassComponent, ShipStatsComponent,
+    TrainingDummy, TransformComponent, Velocity, WeaponComponent,
 };
 use crate::physics_consts::MASS_PER_ORE;
 use crate::registry::BoxedReplicator;
@@ -310,14 +311,14 @@ impl WorldState for BevyWorldAdapter {
             let total_mass = physics.base_mass + (ore_count * physics.mass_per_ore);
 
             // 1.2 Process Inputs
-            let mut move_x = 0.0;
-            let mut move_y = 0.0;
+            let mut move_x = 0.0f32;
+            let mut move_y = 0.0f32;
 
             if let Some(latest) = input {
                 for action in &latest.command.actions {
-                    if let aetheris_protocol::types::PlayerInputKind::Move { x, y } = action {
-                        move_x = *x;
-                        move_y = *y;
+                    if let aetheris_protocol::types::PlayerInputKind::Move { x, y } = *action {
+                        move_x = x;
+                        move_y = y;
                     }
                 }
 
@@ -336,7 +337,7 @@ impl WorldState for BevyWorldAdapter {
             let accel_x = move_x * (physics.thrust_force / total_mass);
             let accel_y = move_y * (physics.thrust_force / total_mass);
 
-            if accel_x.abs() > 0.001 || accel_y.abs() > 0.001 {
+            if accel_x.abs() > 0.001f32 || accel_y.abs() > 0.001f32 {
                 tracing::info!(
                     ?network_id,
                     move_x,
@@ -466,6 +467,63 @@ impl WorldState for BevyWorldAdapter {
             if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
                 let _ = self.despawn_networked(network_id);
             }
+        }
+
+        // VS-03 Combat Loop
+        let combat_dead = crate::combat::process_combat(&mut self.world, &self.bimap);
+        for entity in combat_dead {
+            if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                // Drop cargo
+                if let Some(cargo) = self.world.get::<crate::components::CargoHold>(entity) {
+                    let quantity = cargo.ore_count;
+                    if quantity > 0 {
+                        let pos = self.world.get::<TransformComponent>(entity).map_or(
+                            ProtocolTransform {
+                                x: 0.0,
+                                y: 0.0,
+                                z: 0.0,
+                                rotation: 0.0,
+                                entity_type: 0,
+                            },
+                            |t| t.0,
+                        );
+                        let drop_id = self.spawn_kind(6, pos.x, pos.y, 0.0); // Kind 6 = CargoDrop
+                        if let Some(drop_entity) = self.bimap.get_by_left(&drop_id)
+                            && let Some(mut drop_comp) =
+                                self.world
+                                    .get_mut::<crate::components::CargoDropComponent>(*drop_entity)
+                        {
+                            drop_comp.0.quantity = quantity;
+                        }
+                    }
+                }
+
+                // If training dummy, spawn respawn tracker
+                if self
+                    .world
+                    .get::<crate::components::TrainingDummy>(entity)
+                    .is_some()
+                {
+                    self.world.spawn((
+                        crate::components::TrainingDummy,
+                        crate::components::RespawnTimer {
+                            delay_ticks: 600, // 10s
+                            location: aetheris_protocol::types::RespawnLocation::Coordinate(
+                                50.0, 50.0,
+                            ),
+                        },
+                    ));
+                }
+
+                let _ = self.despawn_networked(network_id);
+            }
+        }
+
+        crate::combat::process_regen(&mut self.world);
+
+        let to_respawn_dummies = crate::combat::process_dummy_respawn(&mut self.world);
+        for (x, y) in to_respawn_dummies {
+            self.spawn_kind(10, x, y, 0.0); // Kind 10 = TrainingDummy
         }
 
         let to_respawn = crate::mining::process_respawn(&mut self.world);
@@ -745,6 +803,66 @@ impl WorldState for BevyWorldAdapter {
                     },
                     crate::components::PlayerName {
                         name: "Player".to_string(),
+                    },
+                    WeaponComponent(aetheris_protocol::types::Weapon {
+                        cooldown_ticks: 30, // 0.5s
+                        last_fired_tick: 0,
+                    }),
+                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
+                        current: 100,
+                        max: 100,
+                    }),
+                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                        current: 200,
+                        max: 200,
+                    }),
+                    crate::components::ShieldRegenTimer {
+                        ticks_until_regen: 0,
+                    },
+                ));
+            }
+            6 => {
+                // Cargo Drop
+                entity_mut.insert((
+                    crate::components::CargoDropComponent(aetheris_protocol::types::CargoDrop {
+                        quantity: 0,
+                    }),
+                    PhysicsBody {
+                        base_mass: 10.0,
+                        thrust_force: 0.0,
+                        max_velocity: 10.0,
+                        turn_rate: 0.0,
+                        drag: 2.0,
+                        mass_per_ore: 0.0,
+                    },
+                ));
+            }
+            10 => {
+                // Training Dummy (VS-03)
+                entity_mut.insert((
+                    TrainingDummy,
+                    ShipClassComponent(ShipClass::Hauler),
+                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
+                        current: 50,
+                        max: 50,
+                    }),
+                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                        current: 100,
+                        max: 100,
+                    }),
+                    crate::components::PlayerName {
+                        name: "Training Dummy".to_string(),
+                    },
+                    crate::components::ShieldRegenTimer {
+                        ticks_until_regen: 0,
+                    },
+                    PhysicsBody {
+                        base_mass: 200.0,
+                        thrust_force: 0.0,
+                        max_velocity: 0.0,
+                        turn_rate: 0.0,
+                        drag: 1.0,
+                        mass_per_ore: 0.0,
                     },
                 ));
             }

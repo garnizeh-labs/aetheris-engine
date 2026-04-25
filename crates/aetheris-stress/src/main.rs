@@ -422,6 +422,7 @@ async fn run_bot_inner(
                         x: move_x,
                         y: move_y,
                     }],
+                    actions_mask: 0,
                     last_seen_input_tick: None,
                 };
 

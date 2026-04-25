@@ -134,6 +134,22 @@ pub struct Asteroid {
     pub total_capacity: u16,
 }
 
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct WeaponComponent(pub aetheris_protocol::types::Weapon);
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ShieldPoolComponent(pub aetheris_protocol::types::ShieldPool);
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct HullPoolComponent(pub aetheris_protocol::types::HullPool);
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CargoDropComponent(pub aetheris_protocol::types::CargoDrop);
+
 impl_component_serde!(TransformComponent);
 impl_component_serde!(Velocity);
 impl_component_serde!(ShipStatsComponent);
@@ -151,6 +167,10 @@ impl_component_serde!(DockedState);
 impl_component_serde!(MiningBeam);
 impl_component_serde!(CargoHold);
 impl_component_serde!(Asteroid);
+impl_component_serde!(WeaponComponent);
+impl_component_serde!(ShieldPoolComponent);
+impl_component_serde!(HullPoolComponent);
+impl_component_serde!(CargoDropComponent);
 
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -305,3 +325,7 @@ pub struct NetworkOwner(pub ClientId);
 /// exclusively to the session ship.
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct SessionShip;
+
+/// Marker: this entity is a training dummy.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct TrainingDummy;
