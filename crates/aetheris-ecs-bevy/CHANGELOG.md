@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.9.0] - 2026-04-25
+
+### 🚀 Features
+
+- *(server)* Implement memory monitoring and improve metric resolution
+- *(engine)* Implement lazy room initialization and authoritative world stabilization (VS-01/VS-02)
+
+### 🐛 Bug Fixes
+
+- *(engine)* Handle missing DeterministicRng gracefully in mining offset calculation
+
+### 📚 Documentation
+
+- Remove redaction labels from changelogs and security documentation
+
+### 🎨 Styling
+
+- Fix cargo fmt issues in mining.rs
 ## [0.8.2] - 2026-04-24
 
 ### 🚀 Features
