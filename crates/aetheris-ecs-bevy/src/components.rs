@@ -116,6 +116,8 @@ pub struct DockedState {
 pub struct MiningBeam {
     pub active: bool,
     pub target: Option<NetworkId>,
+    pub mining_range: f32,
+    pub base_mining_rate: u16,
     #[serde(skip)]
     pub last_seen_input_tick: Option<u64>,
 }

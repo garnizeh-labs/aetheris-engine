@@ -64,6 +64,7 @@ impl BevyWorldAdapter {
         adapter
             .world
             .insert_resource(crate::components::RoomIndex::default());
+        adapter.world.insert_resource(adapter.rng.clone());
         adapter
     }
 
@@ -92,6 +93,7 @@ impl BevyWorldAdapter {
         adapter
             .world
             .insert_resource(crate::components::RoomIndex::default());
+        adapter.world.insert_resource(adapter.rng.clone());
         adapter
     }
 
@@ -659,13 +661,34 @@ impl WorldState for BevyWorldAdapter {
                 }
             }
         }
+        // M10156 — Lazy room creation: if the master room doesn't exist yet, create it.
+        // This ensures the world can start with 0 entities but still function when needed.
         if !found_master {
-            tracing::warn!(
-                master_nid = ?master_nid,
-                "spawn_kind: Playground_Master room not found — defaulting to {:?}. \
-                 Has setup_world() been called?",
-                master_nid
-            );
+            let room_nid = self.spawn_networked();
+            if let Some(&entity) = self.bimap.get_by_left(&room_nid) {
+                self.world.entity_mut(entity).insert((
+                    RoomDefinitionComponent(aetheris_protocol::types::RoomDefinition {
+                        name: aetheris_protocol::types::RoomName::new("Playground_Master")
+                            .expect("static room name fits within MAX_ROOM_STRING_BYTES"),
+                        capacity: 0, // unlimited
+                        access: aetheris_protocol::types::RoomAccessPolicy::Open,
+                        is_template: false,
+                    }),
+                    RoomBoundsComponent(aetheris_protocol::types::RoomBounds {
+                        min_x: -250.0,
+                        min_y: -250.0,
+                        max_x: 250.0,
+                        max_y: 250.0,
+                    }),
+                    RoomMembershipComponent(aetheris_protocol::types::RoomMembership(room_nid)),
+                ));
+                master_nid = room_nid;
+                tracing::info!(?master_nid, "Playground_Master room created lazily");
+
+                // VS-02 refinement: spawn a single authoritative asteroid at (30, 0)
+                // when the master room is first created.
+                self.spawn_kind(5, 30.0, 0.0, 0.0);
+            }
         }
 
         let mut entity_mut = self.world.spawn((
@@ -711,9 +734,15 @@ impl WorldState for BevyWorldAdapter {
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
-                        capacity: 50,
+                        capacity: 500,
                     },
-                    crate::components::MiningBeam::default(),
+                    crate::components::MiningBeam {
+                        active: false,
+                        target: None,
+                        mining_range: 15.0,
+                        base_mining_rate: 2, // Slower pacing
+                        last_seen_input_tick: None,
+                    },
                     crate::components::PlayerName {
                         name: "Player".to_string(),
                     },
@@ -743,7 +772,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                     crate::components::CargoHold {
                         ore_count: 0,
-                        capacity: 100,
+                        capacity: 500,
                     },
                     crate::components::MiningBeam::default(),
                     crate::components::PlayerName {
@@ -787,8 +816,8 @@ impl WorldState for BevyWorldAdapter {
                 // Mining Asteroid (Kind 5 from renderer/UI)
                 entity_mut.insert((
                     crate::components::Asteroid {
-                        ore_remaining: 1000,
-                        total_capacity: 1000,
+                        ore_remaining: 100,
+                        total_capacity: 100,
                     },
                     crate::components::AsteroidHP {
                         hp: 500,
@@ -880,36 +909,8 @@ impl WorldState for BevyWorldAdapter {
     }
 
     fn setup_world(&mut self) {
-        let room_nid = self.spawn_networked();
-        if let Some(&entity) = self.bimap.get_by_left(&room_nid) {
-            self.world.entity_mut(entity).insert((
-                RoomDefinitionComponent(aetheris_protocol::types::RoomDefinition {
-                    name: aetheris_protocol::types::RoomName::new("Playground_Master")
-                        .expect("static room name fits within MAX_ROOM_STRING_BYTES"),
-                    capacity: 0, // unlimited
-                    access: aetheris_protocol::types::RoomAccessPolicy::Open,
-                    is_template: false,
-                }),
-                RoomBoundsComponent(aetheris_protocol::types::RoomBounds {
-                    min_x: -250.0,
-                    min_y: -250.0,
-                    max_x: 250.0,
-                    max_y: 250.0,
-                }),
-                RoomMembershipComponent(aetheris_protocol::types::RoomMembership(room_nid)),
-            ));
-
-            // VS-06: Spawn some visual reference points (asteroids)
-            // This ensures the player can see they are moving relative to something.
-            for i in 0..10 {
-                #[allow(clippy::cast_precision_loss)]
-                let angle = (i as f32) * std::f32::consts::TAU / 10.0;
-                let radius = 20.0;
-                let x = angle.cos() * radius;
-                let y = angle.sin() * radius;
-                self.spawn_kind(5, x, y, 0.0); // 5 = Asteroid
-            }
-        }
+        // VS-02 — Empty start (0 entities).
+        // The master room will be created lazily on the first spawn_kind call.
     }
 
     /// Queues a reliable game event for a specific client (or all clients if None).

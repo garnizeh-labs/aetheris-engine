@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 Documentation
 
-- Initial commit of engine documentation (redacted)
+- Initial commit of engine documentation
 - Enhance README with technical summary and links
 - Align with aetheris premium templates and port infrastructure
 - Fix cross-repo links and placeholders

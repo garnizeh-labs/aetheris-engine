@@ -21,7 +21,6 @@ use aetheris_ecs_bevy::BevyWorldAdapter;
 #[cfg(feature = "phase1")]
 use aetheris_encoder_serde::SerdeEncoder;
 #[cfg(feature = "phase1")]
-use aetheris_protocol::traits::WorldState;
 use aetheris_server::MultiTransport;
 #[cfg(feature = "phase1")]
 use aetheris_server::TickScheduler;
@@ -29,6 +28,9 @@ use aetheris_server::TickScheduler;
 use aetheris_transport_renet::RenetTransport;
 #[cfg(feature = "phase1")]
 use aetheris_transport_webtransport::WebTransportBridge;
+#[cfg(not(target_arch = "wasm32"))]
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,8 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // M10105 — layered tracing subscriber: fmt + OTLP (non-fatal on failure)
     let _provider = {
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-        let fmt_layer = tracing_subscriber::fmt::layer().with_target(true);
 
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+        let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
         let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
             .unwrap_or_else(|_| "http://localhost:4317".to_string());
 
@@ -52,10 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .build()?)
         };
 
-        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-
-        match build_exporter() {
+        let (otlp_layer, provider) = match build_exporter() {
             Ok(exporter) => {
                 use opentelemetry_sdk::trace::SdkTracerProvider;
                 let provider = SdkTracerProvider::builder()
@@ -70,35 +72,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )
                     .build();
                 let tracer = opentelemetry::trace::TracerProvider::tracer(&provider, "aetheris");
-                let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
-                tracing_subscriber::registry()
-                    .with(env_filter)
-                    .with(fmt_layer)
-                    .with(otlp_layer)
-                    .init();
-
-                tracing::info!(otlp_endpoint = %otlp_endpoint, "OTLP tracing initialised");
-                Some(provider)
+                (
+                    Some(tracing_opentelemetry::layer().with_tracer(tracer)),
+                    Some(provider),
+                )
             }
-            Err(e) => {
-                // OTLP unavailable — continue with fmt-only logging (non-fatal)
-                tracing_subscriber::registry()
-                    .with(env_filter)
-                    .with(fmt_layer)
-                    .init();
+            Err(_e) => (None, None),
+        };
 
-                tracing::warn!(error = %e, otlp_endpoint = %otlp_endpoint, "OTLP init failed, tracing continues without Jaeger");
-                None
-            }
+        let fmt_layer_json = (log_format == "json")
+            .then(|| tracing_subscriber::fmt::layer().json().with_target(true));
+        let fmt_layer_text =
+            (log_format != "json").then(|| tracing_subscriber::fmt::layer().with_target(true));
+
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer_json)
+            .with(fmt_layer_text)
+            .with(otlp_layer)
+            .init();
+
+        if let Some(_p) = &provider {
+            tracing::info!(otlp_endpoint = %otlp_endpoint, "OTLP tracing initialised");
+        } else {
+            tracing::warn!(otlp_endpoint = %otlp_endpoint, "OTLP init failed, tracing continues without Jaeger");
         }
+
+        provider
     };
 
     let config = ServerConfig::load();
     metrics_exporter_prometheus::PrometheusBuilder::new()
         .with_http_listener(([0, 0, 0, 0], config.metrics_port))
         .set_buckets(&[
-            0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
+            0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0,
+            2.0, 5.0, 10.0,
         ])
         .expect("Failed to set buckets")
         .install()
@@ -239,7 +247,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = aetheris_server::config::ServerConfig::load();
         let tick_rate = config.tick_rate;
         let mut world = BevyWorldAdapter::new(bevy_ecs::world::World::new(), tick_rate);
-        world.setup_world();
         let mut registry = aetheris_ecs_bevy::registry::ComponentRegistry::new();
         aetheris_ecs_bevy::registry::register_void_rush_components(&mut registry);
 
@@ -266,6 +273,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .await;
         });
+
+        // M10105 — Periodic resource monitoring (Memory, CPU, etc.)
+        {
+            let mut shutdown_mon = shutdown_tx.subscribe();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            // Record memory metrics using jemalloc-ctl
+                            if let (Ok(allocated), Ok(resident)) = (
+                                tikv_jemalloc_ctl::stats::allocated::read(),
+                                tikv_jemalloc_ctl::stats::resident::read(),
+                            ) {
+                                metrics::gauge!("aetheris_memory_allocated_bytes").set(allocated as f64);
+                                metrics::gauge!("aetheris_memory_resident_bytes").set(resident as f64);
+                            }
+                        }
+                        _ = shutdown_mon.recv() => break,
+                    }
+                }
+            });
+        }
 
         let shutdown_auth_tx = shutdown_tx.clone();
         use tracing::Instrument;

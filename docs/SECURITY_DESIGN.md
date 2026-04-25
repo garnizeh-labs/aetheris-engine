@@ -493,7 +493,7 @@ impl SuspicionLevel {
 
 ---
 
-## 9. The Audit Feedback Loop (Redacted)
+## 9. The Audit Feedback Loop
 
 > **Status:** This module is not available yet.
 
