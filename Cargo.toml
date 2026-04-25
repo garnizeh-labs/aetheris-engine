@@ -24,9 +24,9 @@ aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtranspo
 aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.8.2" }
 
 # Protocol (published — garnizeh-labs/aetheris-protocol)
-aetheris-protocol = { version = "0.2.19" }
-aetheris-encoder-serde = { version = "0.2.19" }
-aetheris-encoder-bitpack = { version = "0.2.19" }
+aetheris-protocol = { version = "0.2.20" }
+aetheris-encoder-serde = { version = "0.2.20" }
+aetheris-encoder-bitpack = { version = "0.2.20" }
 
 # Core Traits & Utilities
 futures = "0.3"
@@ -104,6 +104,6 @@ strip = "symbols"
 
 [patch.crates-io]
 # Local path overrides — remove when aetheris-protocol is published to crates.io
-aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
-aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
-aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }
+# aetheris-protocol = { path = "../aetheris-protocol/crates/aetheris-protocol" }
+# aetheris-encoder-serde = { path = "../aetheris-protocol/crates/aetheris-encoder-serde" }
+# aetheris-encoder-bitpack = { path = "../aetheris-protocol/crates/aetheris-encoder-bitpack" }
