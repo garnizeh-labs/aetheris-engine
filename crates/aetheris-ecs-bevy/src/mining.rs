@@ -177,13 +177,17 @@ fn handle_asteroid_depletion(
                 ));
 
                 // Deterministic offset calculation
-                let (offset_x, offset_y) = if let Some(mut rng_res) = world.get_resource_mut::<DeterministicRng>() {
+                let (offset_x, offset_y) = if let Some(mut rng_res) =
+                    world.get_resource_mut::<DeterministicRng>()
+                {
                     (
                         rng_res.inner_mut().random_range(-15.0..15.0),
                         rng_res.inner_mut().random_range(-15.0..15.0),
                     )
                 } else {
-                    tracing::warn!("DeterministicRng resource missing in mining offset calculation; using zero offset");
+                    tracing::warn!(
+                        "DeterministicRng resource missing in mining offset calculation; using zero offset"
+                    );
                     (0.0, 0.0)
                 };
 
