@@ -15,9 +15,9 @@ use aetheris_protocol::types::{
 
 use crate::Networked;
 use crate::components::{
-    HullPoolComponent, LatestInput, PhysicsBody, RoomBoundsComponent, RoomDefinitionComponent,
-    RoomMembershipComponent, ShieldPoolComponent, ShipClassComponent, ShipStatsComponent,
-    TrainingDummy, TransformComponent, Velocity, WeaponComponent,
+    AiControlled, HullPoolComponent, LatestInput, PhysicsBody, RoomBoundsComponent,
+    RoomDefinitionComponent, RoomMembershipComponent, ShieldPoolComponent, ShipClassComponent,
+    ShipStatsComponent, TrainingDummy, TransformComponent, Velocity, WeaponComponent,
 };
 use crate::physics_consts::MASS_PER_ORE;
 use crate::registry::BoxedReplicator;
@@ -934,7 +934,12 @@ impl WorldState for BevyWorldAdapter {
                         last_seen_input_tick: None,
                     },
                     crate::components::PlayerName {
-                        name: "Player".to_string(),
+                        name: if kind == ENTITY_TYPE_AI_INTERCEPTOR {
+                            "AI Interceptor"
+                        } else {
+                            "Player"
+                        }
+                        .to_string(),
                     },
                     WeaponComponent(aetheris_protocol::types::Weapon {
                         cooldown_ticks: 30, // 0.5s
@@ -952,6 +957,10 @@ impl WorldState for BevyWorldAdapter {
                         ticks_until_regen: 0,
                     },
                 ));
+
+                if kind == ENTITY_TYPE_AI_INTERCEPTOR {
+                    entity_mut.insert(AiControlled);
+                }
             }
             ENTITY_TYPE_PROJECTILE => {
                 // Projectile (VS-03 refinement)

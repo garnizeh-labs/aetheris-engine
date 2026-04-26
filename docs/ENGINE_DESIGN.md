@@ -372,7 +372,68 @@ impl NetworkIdAllocator {
 
 ### 6.4 Authoritative Entity Definitions
 
-The engine treats `aetheris-protocol` as the single source of truth for entity types and their base vitals. Systems that handle spawning (e.g., `spawn_kind`) and damage logic use the `ENTITY_TYPE_*` constants and `get_default_stats()` utility. This centralization ensures that any balance changes to base ship stats only need to be made in the protocol crate to propagate across both the engine simulation and the client-side UI.
+The engine treats `aetheris-protocol` as the single source of truth for entity types and their base vitals. This centralization ensures that any balance changes to base ship stats only need to be made in the protocol crate to propagate across both the engine simulation and the client-side UI.
+
+#### 6.4.1 Protocol Constants
+
+Entity types are defined as `u16` constants in the protocol's `types.rs` module. These constants are used across the engine for spawning, filtering, and logic branching.
+
+```rust
+// aetheris-protocol/src/types.rs
+pub const ENTITY_TYPE_INTERCEPTOR: u16 = 1;
+pub const ENTITY_TYPE_AI_INTERCEPTOR: u16 = 2;
+pub const ENTITY_TYPE_DREADNOUGHT: u16 = 3;
+pub const ENTITY_TYPE_HAULER: u16 = 4;
+pub const ENTITY_TYPE_ASTEROID: u16 = 5;
+pub const ENTITY_TYPE_CARGO_DROP: u16 = 6;
+pub const ENTITY_TYPE_TRAINING_DUMMY: u16 = 10;
+pub const ENTITY_TYPE_PROJECTILE: u16 = 20;
+```
+
+#### 6.4.2 Stat Lookup Utility
+
+The protocol provides a `const fn` for looking up default vitals. This allows both the server (for initialization) and the client (for early prediction/UI) to access authoritative base stats without network latency.
+
+```rust
+// aetheris-protocol/src/types.rs
+pub const fn get_default_stats(entity_type: u16) -> (u16, u16) {
+    match entity_type {
+        ENTITY_TYPE_INTERCEPTOR | ENTITY_TYPE_AI_INTERCEPTOR => (200, 100),
+        ENTITY_TYPE_DREADNOUGHT => (1500, 500),
+        ENTITY_TYPE_HAULER => (600, 200),
+        ENTITY_TYPE_ASTEROID => (500, 0),
+        ENTITY_TYPE_TRAINING_DUMMY => (100, 50),
+        ENTITY_TYPE_CARGO_DROP | ENTITY_TYPE_PROJECTILE => (1, 0),
+        _ => (100, 100),
+    }
+}
+```
+
+#### 6.4.3 Integration in `spawn_kind`
+
+The engine's `BevyWorldAdapter` consumes these definitions in the `spawn_kind` method. When an entity is spawned, its `TransformComponent` stores the `entity_type`, and the match loop configures the appropriate components and base stats.
+
+```rust
+// aetheris-ecs-bevy/src/adapter.rs
+fn spawn_kind(&mut self, kind: u16, x: f32, y: f32, rot: f32) -> NetworkId {
+    // ... allocation and transform setup ...
+    match kind {
+        ENTITY_TYPE_INTERCEPTOR | ENTITY_TYPE_AI_INTERCEPTOR => {
+            entity_mut.insert((
+                ShipClassComponent(ShipClass::Interceptor),
+                // Components configured based on authoritative Kind
+            ));
+        }
+        // ... other types ...
+    }
+}
+```
+
+#### 6.4.4 Rationale for Centralization
+
+1.  **UI Consistency**: The client can render the correct health bars and ship models instantly upon receiving a `Spawn` event, even before the authoritative `ShipStats` component is replicated.
+2.  **Cross-Repo Sync**: By placing these in `aetheris-protocol`, we prevent "ID drift" where the client and server might disagree on what Kind 4 represents.
+3.  **Deterministic Balance**: Game designers can modify base stats in a single file and have it reflected across the entire stack.
 ```
 
 ---
