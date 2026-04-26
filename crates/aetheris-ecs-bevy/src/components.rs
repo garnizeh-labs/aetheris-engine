@@ -103,8 +103,10 @@ pub struct JumpGate {
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ProjectileMarker {
     pub projectile_type: ProjectileType,
-    pub origin_tick: u64,
+    pub spawn_pos: [f32; 2],
+    pub max_range: f32,
     pub owner: NetworkId,
+    pub lifetime_ticks: u32,
 }
 
 #[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]

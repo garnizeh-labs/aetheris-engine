@@ -1,6 +1,6 @@
 use crate::components::{
-    HullPoolComponent, LatestInput, ProjectileMarker, ReliableEvents, ServerTick,
-    ShieldPoolComponent, TrainingDummy, TransformComponent, WeaponComponent,
+    HullPoolComponent, LatestInput, ProjectileMarker, ReliableEvents, RespawnTimer, ServerTick,
+    ShieldPoolComponent, TransformComponent, WeaponComponent,
 };
 use aetheris_protocol::events::GameEvent;
 use aetheris_protocol::types::{ACTION_FIRE_WEAPON, NetworkId};
@@ -49,21 +49,31 @@ pub fn process_combat(world: &mut World, bimap: &BiHashMap<NetworkId, Entity>) -
         let mut best_target = None;
         let mut closest_dist_sq = 200.0 * 200.0;
 
-        {
-            let mut target_query = world.query::<(Entity, &TrainingDummy, &TransformComponent)>();
-            for (target_entity, _, target_transform) in target_query.iter(world) {
-                if target_entity == attacker_entity {
-                    continue;
-                }
+        // VS-03: Target anything with health (HullPool or AsteroidHP)
+        let mut target_query = world.query::<(
+            Entity,
+            &TransformComponent,
+            Option<&HullPoolComponent>,
+            Option<&crate::components::AsteroidHP>,
+        )>();
 
-                let dx = target_transform.0.x - attacker_transform.0.x;
-                let dy = target_transform.0.y - attacker_transform.0.y;
-                let dist_sq = dx * dx + dy * dy;
+        for (t_entity, t_transform, opt_hull, opt_asteroid) in target_query.iter(world) {
+            if t_entity == attacker_entity {
+                continue;
+            }
 
-                if dist_sq < closest_dist_sq {
-                    closest_dist_sq = dist_sq;
-                    best_target = Some(target_entity);
-                }
+            // Must have some health to be a target
+            if opt_hull.is_none() && opt_asteroid.is_none() {
+                continue;
+            }
+
+            let dx = t_transform.0.x - attacker_transform.0.x;
+            let dy = t_transform.0.y - attacker_transform.0.y;
+            let dist_sq = dx * dx + dy * dy;
+
+            if dist_sq < closest_dist_sq {
+                closest_dist_sq = dist_sq;
+                best_target = Some(t_entity);
             }
         }
 
@@ -88,7 +98,7 @@ pub fn process_combat(world: &mut World, bimap: &BiHashMap<NetworkId, Entity>) -
             ]
         };
 
-        let projectile_velocity = [direction[0] * 12.5, direction[1] * 12.5];
+        let projectile_velocity = [direction[0] * 35.0, direction[1] * 35.0];
 
         if let Some(mut requests) = world.get_resource_mut::<ProjectileSpawnRequests>() {
             requests.0.push(ProjectileSpawn {
@@ -106,47 +116,83 @@ pub fn process_combat(world: &mut World, bimap: &BiHashMap<NetworkId, Entity>) -
 }
 
 /// Processes projectile movement, collision and lifetime.
+#[allow(clippy::too_many_lines)]
 pub fn process_projectiles(
     world: &mut World,
     bimap: &BiHashMap<NetworkId, Entity>,
 ) -> (Vec<Entity>, Vec<Entity>) {
     let mut to_despawn = Vec::new();
     let mut deaths = Vec::new();
-    let server_tick = world.get_resource::<ServerTick>().map_or(0, |t| t.0);
     let mut damage_events = Vec::new();
 
     // 1. Projectile collision & lifetime
     {
         // Use a query for projectiles
         let mut projectiles = world.query::<(Entity, &ProjectileMarker, &TransformComponent)>();
+        let p_count = projectiles.iter(world).count();
+        if p_count > 0 {
+            tracing::warn!(p_count, "Processing projectiles");
+        }
         let mut projectile_data = Vec::new();
         for (entity, marker, transform) in projectiles.iter(world) {
             projectile_data.push((
                 entity,
-                marker.origin_tick,
+                marker.spawn_pos,
+                marker.max_range,
                 marker.owner,
+                marker.lifetime_ticks,
                 transform.0.x,
                 transform.0.y,
             ));
         }
 
-        for (p_entity, origin_tick, owner_nid, px, py) in projectile_data {
-            // Lifetime: 2 seconds (120 ticks)
-            if server_tick > origin_tick + 120 {
+        // Collision check (Simple radius)
+        let mut target_query = world.query::<(
+            Entity,
+            Option<&mut ShieldPoolComponent>,
+            Option<&mut HullPoolComponent>,
+            Option<&mut crate::components::AsteroidHP>,
+            &TransformComponent,
+        )>();
+
+        for (p_entity, spawn_pos, max_range, owner_nid, lifetime, px, py) in projectile_data {
+            // Lifetime check
+            if lifetime == 0 {
+                tracing::warn!(?p_entity, "Projectile expired by lifetime");
                 to_despawn.push(p_entity);
                 continue;
             }
 
-            // Collision check (Simple radius)
-            let mut target_query = world.query::<(
-                Entity,
-                &mut ShieldPoolComponent,
-                &mut HullPoolComponent,
-                &TransformComponent,
-            )>();
+            // VS-03: Update lifetime in the component (we have to borrow again since projectile_data is a copy)
+            if let Some(mut marker) = world.get_mut::<ProjectileMarker>(p_entity) {
+                marker.lifetime_ticks = marker.lifetime_ticks.saturating_sub(1);
+            }
+
+            // Distance check (M1038 Refinement)
+            let dx = px - spawn_pos[0];
+            let dy = py - spawn_pos[1];
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq > max_range * max_range {
+                tracing::warn!(
+                    ?p_entity,
+                    dist = dist_sq.sqrt(),
+                    max = max_range,
+                    "Projectile exceeded range"
+                );
+                to_despawn.push(p_entity);
+                continue;
+            }
+
             let mut hit = false;
-            for (t_entity, mut shield, mut hull, t_transform) in target_query.iter_mut(world) {
+            for (t_entity, opt_shield, opt_hull, opt_asteroid, t_transform) in
+                target_query.iter_mut(world)
+            {
                 if t_entity == p_entity {
+                    continue;
+                }
+
+                // Skip target if it has no health component (i.e. it's another projectile or untargetable)
+                if opt_shield.is_none() && opt_hull.is_none() && opt_asteroid.is_none() {
                     continue;
                 }
 
@@ -161,32 +207,53 @@ pub fn process_projectiles(
                 let dy = t_transform.0.y - py;
                 let dist_sq = dx * dx + dy * dy;
 
-                if dist_sq < 3.0 * 3.0 {
-                    // 3m hit radius
+                if dist_sq < 4.0 * 4.0 {
+                    // 4m hit radius
                     hit = true;
+                    tracing::debug!(?p_entity, ?t_entity, "Projectile hit target");
 
                     // Apply damage
                     let damage = 25u16;
                     let mut remaining = damage;
 
-                    if shield.0.current >= remaining {
-                        shield.0.current -= remaining;
-                        remaining = 0;
-                    } else {
-                        remaining -= shield.0.current;
-                        shield.0.current = 0;
-                    }
-
-                    if remaining > 0 {
-                        if hull.0.current >= remaining {
-                            hull.0.current -= remaining;
+                    // 1. Try Shield/Hull (Ships/Dummies)
+                    if let Some(mut shield) = opt_shield {
+                        if shield.0.current >= remaining {
+                            shield.0.current -= remaining;
                         } else {
-                            hull.0.current = 0;
+                            remaining -= shield.0.current;
+                            shield.0.current = 0;
                         }
                     }
 
-                    if hull.0.current == 0 {
-                        deaths.push(t_entity);
+                    if remaining > 0
+                        && let Some(mut hull) = opt_hull
+                    {
+                        if hull.0.current >= remaining {
+                            hull.0.current -= remaining;
+                        } else {
+                            remaining -= hull.0.current;
+                            hull.0.current = 0;
+                        }
+
+                        if hull.0.current == 0 {
+                            deaths.push(t_entity);
+                        }
+                    }
+
+                    // 2. Try AsteroidHP (Asteroids)
+                    if remaining > 0
+                        && let Some(mut asteroid_hp) = opt_asteroid
+                    {
+                        if asteroid_hp.hp >= remaining {
+                            asteroid_hp.hp -= remaining;
+                        } else {
+                            asteroid_hp.hp = 0;
+                        }
+
+                        if asteroid_hp.hp == 0 {
+                            deaths.push(t_entity);
+                        }
                     }
 
                     if let Some(&target_id) = bimap.get_by_right(&t_entity) {
@@ -238,6 +305,24 @@ pub fn process_regen(world: &mut World) {
 }
 
 /// Processes training dummy respawns.
-pub fn process_dummy_respawn(_world: &mut World) -> Vec<(f32, f32)> {
-    Vec::new()
+pub fn process_dummy_respawn(world: &mut World) -> Vec<(f32, f32)> {
+    let mut respawn_list = Vec::new();
+    let mut despawn_list = Vec::new();
+
+    let mut query = world.query::<(Entity, &mut RespawnTimer)>();
+    for (entity, mut timer) in query.iter_mut(world) {
+        timer.delay_ticks = timer.delay_ticks.saturating_sub(1);
+        if timer.delay_ticks == 0 {
+            if let aetheris_protocol::types::RespawnLocation::Coordinate(x, y) = timer.location {
+                respawn_list.push((x, y));
+            }
+            despawn_list.push(entity);
+        }
+    }
+
+    for entity in despawn_list {
+        world.despawn(entity);
+    }
+
+    respawn_list
 }

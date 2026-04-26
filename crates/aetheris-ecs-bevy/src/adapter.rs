@@ -296,6 +296,51 @@ impl WorldState for BevyWorldAdapter {
             .map_or(0, |t| t.0);
         let log_this_tick = server_tick.is_multiple_of(60);
 
+        if log_this_tick {
+            let total = self.world.entities().len();
+            let mut entities_info = Vec::new();
+            let mut query = self.world.query::<Entity>();
+            for entity in query.iter(&self.world) {
+                let mut components = Vec::new();
+                if self.world.get::<TransformComponent>(entity).is_some() {
+                    components.push("Transform");
+                }
+                if self
+                    .world
+                    .get::<crate::components::ProjectileMarker>(entity)
+                    .is_some()
+                {
+                    components.push("Projectile");
+                }
+                if self
+                    .world
+                    .get::<crate::components::HullPoolComponent>(entity)
+                    .is_some()
+                {
+                    components.push("Hull");
+                }
+                if self
+                    .world
+                    .get::<crate::components::Velocity>(entity)
+                    .is_some()
+                {
+                    components.push("Velocity");
+                }
+                if self.world.get::<crate::Networked>(entity).is_some() {
+                    components.push("Networked");
+                }
+
+                let nid = self.bimap.get_by_right(&entity).copied();
+                entities_info.push(format!("{entity:?}(nid:{nid:?}) -> {components:?}"));
+            }
+            tracing::warn!(
+                server_tick,
+                total,
+                ?entities_info,
+                "Detailed World Snapshot"
+            );
+        }
+
         let mut query = self.world.query::<(
             &mut Velocity,
             &mut TransformComponent,
@@ -466,8 +511,13 @@ impl WorldState for BevyWorldAdapter {
 
         // Stage 2: Gameplay Systems (M1038)
         let depleted = crate::mining::process_mining(&mut self.world, &self.bimap);
+        let mut reliable_events = Vec::new();
         for entity in depleted {
             if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::AsteroidDepleted { network_id },
+                ));
                 let _ = self.despawn_networked(network_id);
             }
         }
@@ -475,12 +525,30 @@ impl WorldState for BevyWorldAdapter {
         // VS-03 Combat Loop
         let _ = crate::combat::process_combat(&mut self.world, &self.bimap);
 
+        let collected = crate::mining::process_cargo_collection(&mut self.world, &self.bimap);
+        for entity in collected {
+            if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::CargoCollected {
+                        network_id,
+                        amount: 0,
+                    },
+                ));
+                let _ = self.despawn_networked(network_id);
+            }
+        }
+
         let (p_to_despawn, p_deaths) =
             crate::combat::process_projectiles(&mut self.world, &self.bimap);
 
         // Handle projectile deaths (similar to combat_dead)
         for entity in p_deaths {
             if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::DeathEvent { target: network_id },
+                ));
                 // Drop cargo
                 if let Some(cargo) = self.world.get::<crate::components::CargoHold>(entity) {
                     let quantity = cargo.ore_count;
@@ -495,7 +563,7 @@ impl WorldState for BevyWorldAdapter {
                             },
                             |t| t.0,
                         );
-                        let drop_id = self.spawn_kind(7, pos.x, pos.y, 0.0); // Kind 7 = CargoDrop (Remapped)
+                        let drop_id = self.spawn_kind(6, pos.x, pos.y, 0.0); // Kind 6 = CargoDrop
                         if let Some(drop_entity) = self.bimap.get_by_left(&drop_id)
                             && let Some(mut drop_comp) =
                                 self.world
@@ -527,12 +595,26 @@ impl WorldState for BevyWorldAdapter {
             }
         }
 
-        for entity in p_to_despawn {
-            if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+        for entity in &p_to_despawn {
+            if let Some(network_id) = self.bimap.get_by_right(entity).copied() {
+                tracing::info!(?network_id, "Despawning projectile (range/hit)");
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::DeathEvent { target: network_id },
+                ));
                 let _ = self.despawn_networked(network_id);
-            } else if let Ok(e_mut) = self.world.get_entity_mut(entity) {
+            } else if let Ok(e_mut) = self.world.get_entity_mut(*entity) {
+                tracing::info!(?entity, "Despawning projectile (local-only)");
                 e_mut.despawn();
             }
+        }
+
+        if !reliable_events.is_empty()
+            && let Some(mut reliable) = self
+                .world
+                .get_resource_mut::<crate::components::ReliableEvents>()
+        {
+            reliable.queue.extend(reliable_events);
         }
 
         // Handle Projectile Spawn Requests
@@ -544,7 +626,8 @@ impl WorldState for BevyWorldAdapter {
             spawns = std::mem::take(&mut requests.0);
         }
         for spawn in spawns {
-            let pid = self.spawn_kind(6, spawn.pos[0], spawn.pos[1], 0.0); // Kind 6 = Projectile
+            let rot = spawn.vel[1].atan2(spawn.vel[0]);
+            let pid = self.spawn_kind(20, spawn.pos[0], spawn.pos[1], rot); // Kind 20 = Projectile
             if let Some(p_entity) = self.bimap.get_by_left(&pid) {
                 if let Some(mut marker) = self
                     .world
@@ -738,10 +821,6 @@ impl WorldState for BevyWorldAdapter {
 
     #[allow(clippy::too_many_lines, clippy::collapsible_if)]
     fn spawn_kind(&mut self, kind: u16, x: f32, y: f32, rot: f32) -> NetworkId {
-        let server_tick = self
-            .world
-            .get_resource::<crate::components::ServerTick>()
-            .map_or(0, |t| t.0);
         let network_id = self
             .allocator
             .allocate()
@@ -866,13 +945,15 @@ impl WorldState for BevyWorldAdapter {
                     },
                 ));
             }
-            6 => {
+            20 => {
                 // Projectile (VS-03 refinement)
                 entity_mut.insert((
                     crate::components::ProjectileMarker {
                         projectile_type: aetheris_protocol::types::ProjectileType::PulseLaser,
-                        origin_tick: server_tick,
+                        spawn_pos: [x, y],
+                        max_range: 200.0,    // VS-03: range aligned with auto-aim
                         owner: NetworkId(0), // Default, set later if needed
+                        lifetime_ticks: 300,
                     },
                     Velocity {
                         dx: 0.0,
@@ -882,14 +963,14 @@ impl WorldState for BevyWorldAdapter {
                     PhysicsBody {
                         base_mass: 1.0,
                         thrust_force: 0.0,
-                        max_velocity: 500.0, // High speed
+                        max_velocity: 1000.0, // High speed
                         turn_rate: 0.0,
                         drag: 0.0, // No drag for projectiles
                         mass_per_ore: 0.0,
                     },
                 ));
             }
-            7 => {
+            6 => {
                 // Cargo Drop
                 entity_mut.insert((
                     crate::components::CargoDropComponent(aetheris_protocol::types::CargoDrop {

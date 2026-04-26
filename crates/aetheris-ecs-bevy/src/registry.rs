@@ -1,5 +1,5 @@
 use aetheris_protocol::events::{ComponentUpdate, ReplicationEvent};
-use aetheris_protocol::types::{ComponentKind, NetworkId};
+use aetheris_protocol::types::{ComponentKind, NetworkId, PROJECTILE_MARKER_KIND};
 use bevy_ecs::change_detection::Tick;
 use bevy_ecs::prelude::{Component, Entity, World};
 use serde::{Deserialize, Serialize};
@@ -477,9 +477,9 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         name: "ProjectileMarker",
         scope: ComponentScope::Game,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<ProjectileMarker>::new(ComponentKind(
-            13,
-        ))),
+        replicator: Arc::new(DefaultReplicator::<ProjectileMarker>::new(
+            PROJECTILE_MARKER_KIND,
+        )),
     });
 
     // 14: DockedState (Core)
