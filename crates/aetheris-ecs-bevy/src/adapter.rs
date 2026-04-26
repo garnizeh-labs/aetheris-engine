@@ -7,7 +7,10 @@ use aetheris_protocol::error::WorldError;
 use aetheris_protocol::events::ComponentUpdate;
 use aetheris_protocol::traits::WorldState;
 use aetheris_protocol::types::{
-    ClientId, ComponentKind, LocalId, NetworkId, NetworkIdAllocator, ShipClass, ShipStats,
+    ClientId, ComponentKind, ENTITY_TYPE_AI_INTERCEPTOR, ENTITY_TYPE_ASTEROID,
+    ENTITY_TYPE_CARGO_DROP, ENTITY_TYPE_DREADNOUGHT, ENTITY_TYPE_HAULER, ENTITY_TYPE_INTERCEPTOR,
+    ENTITY_TYPE_PROJECTILE, ENTITY_TYPE_TRAINING_DUMMY, LocalId, NetworkId, NetworkIdAllocator,
+    ShipClass, ShipStats,
 };
 
 use crate::Networked;
@@ -563,7 +566,7 @@ impl WorldState for BevyWorldAdapter {
                             },
                             |t| t.0,
                         );
-                        let drop_id = self.spawn_kind(6, pos.x, pos.y, 0.0); // Kind 6 = CargoDrop
+                        let drop_id = self.spawn_kind(ENTITY_TYPE_CARGO_DROP, pos.x, pos.y, 0.0);
                         if let Some(drop_entity) = self.bimap.get_by_left(&drop_id)
                             && let Some(mut drop_comp) =
                                 self.world
@@ -627,7 +630,7 @@ impl WorldState for BevyWorldAdapter {
         }
         for spawn in spawns {
             let rot = spawn.vel[1].atan2(spawn.vel[0]);
-            let pid = self.spawn_kind(20, spawn.pos[0], spawn.pos[1], rot); // Kind 20 = Projectile
+            let pid = self.spawn_kind(ENTITY_TYPE_PROJECTILE, spawn.pos[0], spawn.pos[1], rot);
             if let Some(p_entity) = self.bimap.get_by_left(&pid) {
                 if let Some(mut marker) = self
                     .world
@@ -647,12 +650,12 @@ impl WorldState for BevyWorldAdapter {
 
         let to_respawn_dummies = crate::combat::process_dummy_respawn(&mut self.world);
         for (x, y) in to_respawn_dummies {
-            self.spawn_kind(10, x, y, 0.0); // Kind 10 = TrainingDummy
+            self.spawn_kind(ENTITY_TYPE_TRAINING_DUMMY, x, y, 0.0);
         }
 
         let to_respawn = crate::mining::process_respawn(&mut self.world);
         for (x, y, capacity) in to_respawn {
-            let nid = self.spawn_kind(5, x, y, 0.0); // Kind 5 = Asteroid
+            let nid = self.spawn_kind(ENTITY_TYPE_ASTEROID, x, y, 0.0);
             if let Some(entity) = self.bimap.get_by_left(&nid)
                 && let Some(mut asteroid) =
                     self.world.get_mut::<crate::components::Asteroid>(*entity)
@@ -803,7 +806,13 @@ impl WorldState for BevyWorldAdapter {
         use rand::RngExt;
         tracing::info!(count, rotate, "Executing server-side stress test");
 
-        let entity_types: [u16; 5] = [1, 3, 4, 5, 6];
+        let entity_types: [u16; 5] = [
+            ENTITY_TYPE_INTERCEPTOR,
+            ENTITY_TYPE_DREADNOUGHT,
+            ENTITY_TYPE_HAULER,
+            ENTITY_TYPE_ASTEROID,
+            ENTITY_TYPE_CARGO_DROP,
+        ];
         for i in 0..count {
             let x = self.rng.inner_mut().random_range(-20.0..20.0);
             let y = self.rng.inner_mut().random_range(-20.0..20.0);
@@ -869,7 +878,7 @@ impl WorldState for BevyWorldAdapter {
 
                 // VS-02 refinement: spawn a single authoritative asteroid at (30, 0)
                 // when the master room is first created.
-                self.spawn_kind(5, 30.0, 0.0, 0.0);
+                self.spawn_kind(ENTITY_TYPE_ASTEROID, 30.0, 0.0, 0.0);
             }
         }
 
@@ -891,8 +900,7 @@ impl WorldState for BevyWorldAdapter {
 
         // Map entity kind to components (M1020 §3.2)
         match kind {
-            // 1 = Player Interceptor, 2 = AI Interceptor (GDD §4.2)
-            1 | 2 => {
+            ENTITY_TYPE_INTERCEPTOR | ENTITY_TYPE_AI_INTERCEPTOR => {
                 // Interceptor (GDD §4.2 / M1020 §3.1)
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Interceptor),
@@ -945,7 +953,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                 ));
             }
-            20 => {
+            ENTITY_TYPE_PROJECTILE => {
                 // Projectile (VS-03 refinement)
                 entity_mut.insert((
                     crate::components::ProjectileMarker {
@@ -970,7 +978,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                 ));
             }
-            6 => {
+            ENTITY_TYPE_CARGO_DROP => {
                 // Cargo Drop
                 entity_mut.insert((
                     crate::components::CargoDropComponent(aetheris_protocol::types::CargoDrop {
@@ -986,7 +994,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                 ));
             }
-            10 => {
+            ENTITY_TYPE_TRAINING_DUMMY => {
                 // Training Dummy (VS-03)
                 entity_mut.insert((
                     TrainingDummy,
@@ -1015,7 +1023,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                 ));
             }
-            3 => {
+            ENTITY_TYPE_DREADNOUGHT => {
                 // Dreadnought (GDD §4.2 / M1020 §3.1)
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Dreadnought),
@@ -1047,7 +1055,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                 ));
             }
-            4 => {
+            ENTITY_TYPE_HAULER => {
                 // Hauler (GDD §4.2 / M1020 §3.1)
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Hauler),
@@ -1079,7 +1087,7 @@ impl WorldState for BevyWorldAdapter {
                     },
                 ));
             }
-            5 => {
+            ENTITY_TYPE_ASTEROID => {
                 // Mining Asteroid (Kind 5 from renderer/UI)
                 entity_mut.insert((
                     crate::components::Asteroid {
