@@ -10,7 +10,7 @@ use aetheris_protocol::types::{
     ClientId, ComponentKind, ENTITY_TYPE_AI_INTERCEPTOR, ENTITY_TYPE_ASTEROID,
     ENTITY_TYPE_CARGO_DROP, ENTITY_TYPE_DREADNOUGHT, ENTITY_TYPE_HAULER, ENTITY_TYPE_INTERCEPTOR,
     ENTITY_TYPE_PROJECTILE, ENTITY_TYPE_TRAINING_DUMMY, LocalId, NetworkId, NetworkIdAllocator,
-    ShipClass, ShipStats,
+    ShipClass, ShipStats, get_default_stats,
 };
 
 use crate::Networked;
@@ -904,15 +904,18 @@ impl WorldState for BevyWorldAdapter {
                 // Interceptor (GDD §4.2 / M1020 §3.1)
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Interceptor),
-                    ShipStatsComponent(ShipStats {
-                        hp: 200,
-                        max_hp: 200,
-                        shield: 100,
-                        max_shield: 100,
-                        energy: 100,
-                        max_energy: 100,
-                        shield_regen_per_s: 5,
-                        energy_regen_per_s: 10,
+                    ShipStatsComponent({
+                        let (hp, shield) = get_default_stats(kind);
+                        ShipStats {
+                            hp,
+                            max_hp: hp,
+                            shield,
+                            max_shield: shield,
+                            energy: 100,
+                            max_energy: 100,
+                            shield_regen_per_s: 5,
+                            energy_regen_per_s: 10,
+                        }
                     }),
                     PhysicsBody {
                         base_mass: 100.0,
@@ -945,13 +948,19 @@ impl WorldState for BevyWorldAdapter {
                         cooldown_ticks: 30, // 0.5s
                         last_fired_tick: 0,
                     }),
-                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: 100,
-                        max: 100,
+                    ShieldPoolComponent({
+                        let (_, shield) = get_default_stats(kind);
+                        aetheris_protocol::types::ShieldPool {
+                            current: shield,
+                            max: shield,
+                        }
                     }),
-                    HullPoolComponent(aetheris_protocol::types::HullPool {
-                        current: 200,
-                        max: 200,
+                    HullPoolComponent({
+                        let (hp, _) = get_default_stats(kind);
+                        aetheris_protocol::types::HullPool {
+                            current: hp,
+                            max: hp,
+                        }
                     }),
                     crate::components::ShieldRegenTimer {
                         ticks_until_regen: 0,
@@ -1008,13 +1017,19 @@ impl WorldState for BevyWorldAdapter {
                 entity_mut.insert((
                     TrainingDummy,
                     ShipClassComponent(ShipClass::Hauler),
-                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: 50,
-                        max: 50,
+                    ShieldPoolComponent({
+                        let (_, shield) = get_default_stats(kind);
+                        aetheris_protocol::types::ShieldPool {
+                            current: shield,
+                            max: shield,
+                        }
                     }),
-                    HullPoolComponent(aetheris_protocol::types::HullPool {
-                        current: 100,
-                        max: 100,
+                    HullPoolComponent({
+                        let (hp, _) = get_default_stats(kind);
+                        aetheris_protocol::types::HullPool {
+                            current: hp,
+                            max: hp,
+                        }
                     }),
                     crate::components::PlayerName {
                         name: "Training Dummy".to_string(),
@@ -1036,15 +1051,18 @@ impl WorldState for BevyWorldAdapter {
                 // Dreadnought (GDD §4.2 / M1020 §3.1)
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Dreadnought),
-                    ShipStatsComponent(ShipStats {
-                        hp: 1500,
-                        max_hp: 1500,
-                        shield: 500,
-                        max_shield: 500,
-                        energy: 300,
-                        max_energy: 300,
-                        shield_regen_per_s: 15,
-                        energy_regen_per_s: 20,
+                    ShipStatsComponent({
+                        let (hp, shield) = get_default_stats(kind);
+                        ShipStats {
+                            hp,
+                            max_hp: hp,
+                            shield,
+                            max_shield: shield,
+                            energy: 300,
+                            max_energy: 300,
+                            shield_regen_per_s: 15,
+                            energy_regen_per_s: 20,
+                        }
                     }),
                     PhysicsBody {
                         base_mass: 400.0,
@@ -1068,15 +1086,18 @@ impl WorldState for BevyWorldAdapter {
                 // Hauler (GDD §4.2 / M1020 §3.1)
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Hauler),
-                    ShipStatsComponent(ShipStats {
-                        hp: 600,
-                        max_hp: 600,
-                        shield: 200,
-                        max_shield: 200,
-                        energy: 150,
-                        max_energy: 150,
-                        shield_regen_per_s: 8,
-                        energy_regen_per_s: 12,
+                    ShipStatsComponent({
+                        let (hp, shield) = get_default_stats(kind);
+                        ShipStats {
+                            hp,
+                            max_hp: hp,
+                            shield,
+                            max_shield: shield,
+                            energy: 150,
+                            max_energy: 150,
+                            shield_regen_per_s: 8,
+                            energy_regen_per_s: 12,
+                        }
                     }),
                     PhysicsBody {
                         base_mass: 200.0,

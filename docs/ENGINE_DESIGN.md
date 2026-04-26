@@ -369,6 +369,7 @@ impl NetworkIdAllocator {
         NetworkId(self.next.fetch_add(1, Ordering::Relaxed))
     }
 }
+```
 
 ### 6.4 Authoritative Entity Definitions
 
@@ -411,7 +412,7 @@ pub const fn get_default_stats(entity_type: u16) -> (u16, u16) {
 
 #### 6.4.3 Integration in `spawn_kind`
 
-The engine's `BevyWorldAdapter` consumes these definitions in the `spawn_kind` method. When an entity is spawned, its `TransformComponent` stores the `entity_type`, and the match loop configures the appropriate components and base stats.
+The engine's `BevyWorldAdapter` consumes these definitions in the `spawn_kind` method. When an entity is spawned, its `TransformComponent` stores the `entity_type`, and the match loop configures the appropriate components by reading base vitals from the protocol helper.
 
 ```rust
 // aetheris-ecs-bevy/src/adapter.rs
@@ -419,9 +420,16 @@ fn spawn_kind(&mut self, kind: u16, x: f32, y: f32, rot: f32) -> NetworkId {
     // ... allocation and transform setup ...
     match kind {
         ENTITY_TYPE_INTERCEPTOR | ENTITY_TYPE_AI_INTERCEPTOR => {
+            let (hp, shield) = get_default_stats(kind);
             entity_mut.insert((
                 ShipClassComponent(ShipClass::Interceptor),
-                // Components configured based on authoritative Kind
+                ShipStatsComponent(ShipStats {
+                    hp,
+                    max_hp: hp,
+                    shield,
+                    max_shield: shield,
+                    // ... other stats ...
+                }),
             ));
         }
         // ... other types ...
