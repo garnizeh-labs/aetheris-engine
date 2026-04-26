@@ -45,6 +45,9 @@ pub struct TickScheduler {
     outbound_tx: Option<mpsc::Sender<OutboundMessage>>,
     recording_ticks: Option<u64>,
     golden_hashes: Vec<u64>,
+    /// When true, `tick_step` calls `world.stress_test(100, true)` after `advance_tick()` at tick 0.
+    /// This matches the recording mode setup and is also used by the determinism replay test.
+    spawn_at_zero: bool,
 }
 
 impl TickScheduler {
@@ -69,7 +72,18 @@ impl TickScheduler {
                 .ok()
                 .and_then(|v| v.parse().ok()),
             golden_hashes: Vec::new(),
+            spawn_at_zero: std::env::var("AETHERIS_RECORD_GOLDEN").is_ok(),
         }
+    }
+
+    /// Enables spawning 100 stress-test entities after `advance_tick()` at tick 0.
+    ///
+    /// This matches the server recording setup and must be used by the determinism replay
+    /// test so that entity `origin_tick` values are identical to those in the golden file.
+    #[must_use]
+    pub fn with_spawn_at_zero(mut self, v: bool) -> Self {
+        self.spawn_at_zero = v;
+        self
     }
 
     /// Sets the outbound channel for messages. Used in tests or custom loops.
@@ -183,7 +197,7 @@ impl TickScheduler {
         // and are silently skipped by `extract_deltas`, causing them to never be replicated.
         world.advance_tick();
 
-        if tick == 0 && self.recording_ticks.is_some() {
+        if tick == 0 && self.spawn_at_zero {
             tracing::info!("Recording mode: Spawning 100 entities for determinism test");
             world.stress_test(100, true);
         }

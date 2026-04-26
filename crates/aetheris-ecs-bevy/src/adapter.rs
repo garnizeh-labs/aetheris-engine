@@ -12,8 +12,9 @@ use aetheris_protocol::types::{
 
 use crate::Networked;
 use crate::components::{
-    LatestInput, PhysicsBody, RoomBoundsComponent, RoomDefinitionComponent,
-    RoomMembershipComponent, ShipClassComponent, ShipStatsComponent, TransformComponent, Velocity,
+    HullPoolComponent, LatestInput, PhysicsBody, RoomBoundsComponent, RoomDefinitionComponent,
+    RoomMembershipComponent, ShieldPoolComponent, ShipClassComponent, ShipStatsComponent,
+    TrainingDummy, TransformComponent, Velocity, WeaponComponent,
 };
 use crate::physics_consts::MASS_PER_ORE;
 use crate::registry::BoxedReplicator;
@@ -61,6 +62,9 @@ impl BevyWorldAdapter {
         adapter
             .world
             .insert_resource(crate::components::ReliableEvents::default());
+        adapter
+            .world
+            .insert_resource(crate::combat::ProjectileSpawnRequests::default());
         adapter
             .world
             .insert_resource(crate::components::RoomIndex::default());
@@ -292,6 +296,51 @@ impl WorldState for BevyWorldAdapter {
             .map_or(0, |t| t.0);
         let log_this_tick = server_tick.is_multiple_of(60);
 
+        if log_this_tick {
+            let total = self.world.entities().len();
+            let mut entities_info = Vec::new();
+            let mut query = self.world.query::<Entity>();
+            for entity in query.iter(&self.world) {
+                let mut components = Vec::new();
+                if self.world.get::<TransformComponent>(entity).is_some() {
+                    components.push("Transform");
+                }
+                if self
+                    .world
+                    .get::<crate::components::ProjectileMarker>(entity)
+                    .is_some()
+                {
+                    components.push("Projectile");
+                }
+                if self
+                    .world
+                    .get::<crate::components::HullPoolComponent>(entity)
+                    .is_some()
+                {
+                    components.push("Hull");
+                }
+                if self
+                    .world
+                    .get::<crate::components::Velocity>(entity)
+                    .is_some()
+                {
+                    components.push("Velocity");
+                }
+                if self.world.get::<crate::Networked>(entity).is_some() {
+                    components.push("Networked");
+                }
+
+                let nid = self.bimap.get_by_right(&entity).copied();
+                entities_info.push(format!("{entity:?}(nid:{nid:?}) -> {components:?}"));
+            }
+            tracing::warn!(
+                server_tick,
+                total,
+                ?entities_info,
+                "Detailed World Snapshot"
+            );
+        }
+
         let mut query = self.world.query::<(
             &mut Velocity,
             &mut TransformComponent,
@@ -310,14 +359,14 @@ impl WorldState for BevyWorldAdapter {
             let total_mass = physics.base_mass + (ore_count * physics.mass_per_ore);
 
             // 1.2 Process Inputs
-            let mut move_x = 0.0;
-            let mut move_y = 0.0;
+            let mut move_x = 0.0f32;
+            let mut move_y = 0.0f32;
 
             if let Some(latest) = input {
                 for action in &latest.command.actions {
-                    if let aetheris_protocol::types::PlayerInputKind::Move { x, y } = action {
-                        move_x = *x;
-                        move_y = *y;
+                    if let aetheris_protocol::types::PlayerInputKind::Move { x, y } = *action {
+                        move_x = x;
+                        move_y = y;
                     }
                 }
 
@@ -336,7 +385,7 @@ impl WorldState for BevyWorldAdapter {
             let accel_x = move_x * (physics.thrust_force / total_mass);
             let accel_y = move_y * (physics.thrust_force / total_mass);
 
-            if accel_x.abs() > 0.001 || accel_y.abs() > 0.001 {
+            if accel_x.abs() > 0.001f32 || accel_y.abs() > 0.001f32 {
                 tracing::info!(
                     ?network_id,
                     move_x,
@@ -462,10 +511,143 @@ impl WorldState for BevyWorldAdapter {
 
         // Stage 2: Gameplay Systems (M1038)
         let depleted = crate::mining::process_mining(&mut self.world, &self.bimap);
+        let mut reliable_events = Vec::new();
         for entity in depleted {
             if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::AsteroidDepleted { network_id },
+                ));
                 let _ = self.despawn_networked(network_id);
             }
+        }
+
+        // VS-03 Combat Loop
+        let _ = crate::combat::process_combat(&mut self.world, &self.bimap);
+
+        let collected = crate::mining::process_cargo_collection(&mut self.world, &self.bimap);
+        for entity in collected {
+            if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::CargoCollected {
+                        network_id,
+                        amount: 0,
+                    },
+                ));
+                let _ = self.despawn_networked(network_id);
+            }
+        }
+
+        let (p_to_despawn, p_deaths) =
+            crate::combat::process_projectiles(&mut self.world, &self.bimap);
+
+        // Handle projectile deaths (similar to combat_dead)
+        for entity in p_deaths {
+            if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::DeathEvent { target: network_id },
+                ));
+                // Drop cargo
+                if let Some(cargo) = self.world.get::<crate::components::CargoHold>(entity) {
+                    let quantity = cargo.ore_count;
+                    if quantity > 0 {
+                        let pos = self.world.get::<TransformComponent>(entity).map_or(
+                            ProtocolTransform {
+                                x: 0.0,
+                                y: 0.0,
+                                z: 0.0,
+                                rotation: 0.0,
+                                entity_type: 0,
+                            },
+                            |t| t.0,
+                        );
+                        let drop_id = self.spawn_kind(6, pos.x, pos.y, 0.0); // Kind 6 = CargoDrop
+                        if let Some(drop_entity) = self.bimap.get_by_left(&drop_id)
+                            && let Some(mut drop_comp) =
+                                self.world
+                                    .get_mut::<crate::components::CargoDropComponent>(*drop_entity)
+                        {
+                            drop_comp.0.quantity = quantity;
+                        }
+                    }
+                }
+
+                // If training dummy, spawn respawn tracker
+                if self
+                    .world
+                    .get::<crate::components::TrainingDummy>(entity)
+                    .is_some()
+                {
+                    self.world.spawn((
+                        crate::components::TrainingDummy,
+                        crate::components::RespawnTimer {
+                            delay_ticks: 600, // 10s
+                            location: aetheris_protocol::types::RespawnLocation::Coordinate(
+                                50.0, 50.0,
+                            ),
+                        },
+                    ));
+                }
+
+                let _ = self.despawn_networked(network_id);
+            }
+        }
+
+        for entity in &p_to_despawn {
+            if let Some(network_id) = self.bimap.get_by_right(entity).copied() {
+                tracing::info!(?network_id, "Despawning projectile (range/hit)");
+                reliable_events.push((
+                    None,
+                    aetheris_protocol::events::GameEvent::DeathEvent { target: network_id },
+                ));
+                let _ = self.despawn_networked(network_id);
+            } else if let Ok(e_mut) = self.world.get_entity_mut(*entity) {
+                tracing::info!(?entity, "Despawning projectile (local-only)");
+                e_mut.despawn();
+            }
+        }
+
+        if !reliable_events.is_empty()
+            && let Some(mut reliable) = self
+                .world
+                .get_resource_mut::<crate::components::ReliableEvents>()
+        {
+            reliable.queue.extend(reliable_events);
+        }
+
+        // Handle Projectile Spawn Requests
+        let mut spawns = Vec::new();
+        if let Some(mut requests) = self
+            .world
+            .get_resource_mut::<crate::combat::ProjectileSpawnRequests>()
+        {
+            spawns = std::mem::take(&mut requests.0);
+        }
+        for spawn in spawns {
+            let rot = spawn.vel[1].atan2(spawn.vel[0]);
+            let pid = self.spawn_kind(20, spawn.pos[0], spawn.pos[1], rot); // Kind 20 = Projectile
+            if let Some(p_entity) = self.bimap.get_by_left(&pid) {
+                if let Some(mut marker) = self
+                    .world
+                    .get_mut::<crate::components::ProjectileMarker>(*p_entity)
+                {
+                    marker.owner = spawn.owner;
+                }
+                if let Some(mut vel) = self.world.get_mut::<crate::components::Velocity>(*p_entity)
+                {
+                    vel.dx = spawn.vel[0];
+                    vel.dy = spawn.vel[1];
+                }
+            }
+        }
+
+        crate::combat::process_regen(&mut self.world);
+
+        let to_respawn_dummies = crate::combat::process_dummy_respawn(&mut self.world);
+        for (x, y) in to_respawn_dummies {
+            self.spawn_kind(10, x, y, 0.0); // Kind 10 = TrainingDummy
         }
 
         let to_respawn = crate::mining::process_respawn(&mut self.world);
@@ -745,6 +927,91 @@ impl WorldState for BevyWorldAdapter {
                     },
                     crate::components::PlayerName {
                         name: "Player".to_string(),
+                    },
+                    WeaponComponent(aetheris_protocol::types::Weapon {
+                        cooldown_ticks: 30, // 0.5s
+                        last_fired_tick: 0,
+                    }),
+                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
+                        current: 100,
+                        max: 100,
+                    }),
+                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                        current: 200,
+                        max: 200,
+                    }),
+                    crate::components::ShieldRegenTimer {
+                        ticks_until_regen: 0,
+                    },
+                ));
+            }
+            20 => {
+                // Projectile (VS-03 refinement)
+                entity_mut.insert((
+                    crate::components::ProjectileMarker {
+                        projectile_type: aetheris_protocol::types::ProjectileType::PulseLaser,
+                        spawn_pos: [x, y],
+                        max_range: 200.0,    // VS-03: range aligned with auto-aim
+                        owner: NetworkId(0), // Default, set later if needed
+                        lifetime_ticks: 300,
+                    },
+                    Velocity {
+                        dx: 0.0,
+                        dy: 0.0,
+                        dz: 0.0,
+                    },
+                    PhysicsBody {
+                        base_mass: 1.0,
+                        thrust_force: 0.0,
+                        max_velocity: 1000.0, // High speed
+                        turn_rate: 0.0,
+                        drag: 0.0, // No drag for projectiles
+                        mass_per_ore: 0.0,
+                    },
+                ));
+            }
+            6 => {
+                // Cargo Drop
+                entity_mut.insert((
+                    crate::components::CargoDropComponent(aetheris_protocol::types::CargoDrop {
+                        quantity: 0,
+                    }),
+                    PhysicsBody {
+                        base_mass: 10.0,
+                        thrust_force: 0.0,
+                        max_velocity: 10.0,
+                        turn_rate: 0.0,
+                        drag: 2.0,
+                        mass_per_ore: 0.0,
+                    },
+                ));
+            }
+            10 => {
+                // Training Dummy (VS-03)
+                entity_mut.insert((
+                    TrainingDummy,
+                    ShipClassComponent(ShipClass::Hauler),
+                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
+                        current: 50,
+                        max: 50,
+                    }),
+                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                        current: 100,
+                        max: 100,
+                    }),
+                    crate::components::PlayerName {
+                        name: "Training Dummy".to_string(),
+                    },
+                    crate::components::ShieldRegenTimer {
+                        ticks_until_regen: 0,
+                    },
+                    PhysicsBody {
+                        base_mass: 200.0,
+                        thrust_force: 0.0,
+                        max_velocity: 0.0,
+                        turn_rate: 0.0,
+                        drag: 1.0,
+                        mass_per_ore: 0.0,
                     },
                 ));
             }

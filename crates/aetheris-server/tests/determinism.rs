@@ -87,10 +87,8 @@ async fn test_determinism_golden_replay() {
         Box::new(NoOpTransport) as Box<dyn GameTransport>
     ));
     let encoder = SerdeEncoder::new();
-    let mut scheduler = TickScheduler::new(tick_rate, Arc::new(NoOpAuth), pool);
-
-    // Trigger same stress test as in recording
-    world.stress_test(100, true);
+    let mut scheduler =
+        TickScheduler::new(tick_rate, Arc::new(NoOpAuth), pool).with_spawn_at_zero(true);
 
     // 3. Replay 600 ticks and compare hashes
     for (i, &expected) in expected_hashes.iter().enumerate() {

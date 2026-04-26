@@ -1,6 +1,6 @@
 use crate::components::{
-    Asteroid, AsteroidRespawn, CargoHold, MiningBeam, NetworkOwner, ReliableEvents, ServerTick,
-    TransformComponent,
+    Asteroid, AsteroidRespawn, CargoDropComponent, CargoHold, MiningBeam, NetworkOwner,
+    ReliableEvents, ServerTick, TransformComponent,
 };
 use aetheris_protocol::events::GameEvent;
 use aetheris_protocol::types::NetworkId;
@@ -242,4 +242,79 @@ pub fn process_respawn(world: &mut World) -> Vec<(f32, f32, u16)> {
     }
 
     to_spawn
+}
+
+/// Processes collection of cargo drops by ships with cargo holds.
+#[allow(clippy::too_many_lines)]
+pub fn process_cargo_collection(
+    world: &mut World,
+    bimap: &BiHashMap<NetworkId, Entity>,
+) -> Vec<Entity> {
+    let mut to_despawn = Vec::new();
+    let mut collections = Vec::new(); // (ShipEntity, DropEntity, Amount)
+
+    // 1. Find all drops and nearby ships that can collect them
+    {
+        let mut drop_query = world.query::<(Entity, &CargoDropComponent, &TransformComponent)>();
+        let mut ship_query = world.query::<(Entity, &CargoHold, &TransformComponent)>();
+
+        for (d_entity, d_comp, d_transform) in drop_query.iter(world) {
+            for (s_entity, s_cargo, s_transform) in ship_query.iter(world) {
+                // Ignore if the ship is actually a drop (shouldn't happen with queries but good to be safe)
+                if d_entity == s_entity {
+                    continue;
+                }
+
+                let dx = d_transform.0.x - s_transform.0.x;
+                let dy = d_transform.0.y - s_transform.0.y;
+                let dist_sq = dx * dx + dy * dy;
+
+                if dist_sq < 10.0 * 10.0 {
+                    // 10m collection radius
+                    let available_space = s_cargo.capacity.saturating_sub(s_cargo.ore_count);
+                    if available_space > 0 {
+                        let amount = d_comp.0.quantity.min(available_space);
+                        collections.push((s_entity, d_entity, amount));
+                        break; // This drop is claimed
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Apply collections
+    for (s_entity, d_entity, amount) in collections {
+        if amount > 0 {
+            if let Some(mut s_cargo) = world.get_mut::<CargoHold>(s_entity) {
+                s_cargo.ore_count += amount;
+            }
+
+            if let Some(mut d_comp) = world.get_mut::<CargoDropComponent>(d_entity) {
+                if amount >= d_comp.0.quantity {
+                    d_comp.0.quantity = 0;
+                    to_despawn.push(d_entity);
+                } else {
+                    d_comp.0.quantity -= amount;
+                }
+            }
+
+            // VS-02 — Play collection sound/effect via event
+            if let Some(&drop_id) = bimap.get_by_right(&d_entity)
+                && let Some(mut reliable) = world.get_resource_mut::<ReliableEvents>()
+            {
+                reliable.queue.push((
+                    None,
+                    GameEvent::CargoCollected {
+                        network_id: drop_id,
+                        amount,
+                    },
+                ));
+            }
+        } else {
+            // Even if amount is 0 (full cargo), we might want to despawn it if the player "touches" it
+            // but for now let's just leave it there.
+        }
+    }
+
+    to_despawn
 }

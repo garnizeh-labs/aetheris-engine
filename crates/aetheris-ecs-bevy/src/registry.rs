@@ -1,5 +1,5 @@
 use aetheris_protocol::events::{ComponentUpdate, ReplicationEvent};
-use aetheris_protocol::types::{ComponentKind, NetworkId};
+use aetheris_protocol::types::{ComponentKind, NetworkId, PROJECTILE_MARKER_KIND};
 use bevy_ecs::change_detection::Tick;
 use bevy_ecs::prelude::{Component, Entity, World};
 use serde::{Deserialize, Serialize};
@@ -477,9 +477,9 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         name: "ProjectileMarker",
         scope: ComponentScope::Game,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<ProjectileMarker>::new(ComponentKind(
-            13,
-        ))),
+        replicator: Arc::new(DefaultReplicator::<ProjectileMarker>::new(
+            PROJECTILE_MARKER_KIND,
+        )),
     });
 
     // 14: DockedState (Core)
@@ -521,6 +521,50 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<Asteroid>::new(
             aetheris_protocol::types::ASTEROID_KIND,
+        )),
+    });
+
+    // 1027: WeaponComponent (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::WEAPON_KIND,
+        name: "WeaponComponent",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<WeaponComponent>::new(
+            aetheris_protocol::types::WEAPON_KIND,
+        )),
+    });
+
+    // 1028: ShieldPoolComponent (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::SHIELD_POOL_KIND,
+        name: "ShieldPoolComponent",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<ShieldPoolComponent>::new(
+            aetheris_protocol::types::SHIELD_POOL_KIND,
+        )),
+    });
+
+    // 1029: HullPoolComponent (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::HULL_POOL_KIND,
+        name: "HullPoolComponent",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<HullPoolComponent>::new(
+            aetheris_protocol::types::HULL_POOL_KIND,
+        )),
+    });
+
+    // 1030: CargoDropComponent (Game)
+    registry.register(ComponentDescriptor {
+        kind: aetheris_protocol::types::CARGO_DROP_KIND,
+        name: "CargoDropComponent",
+        scope: ComponentScope::Game,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<CargoDropComponent>::new(
+            aetheris_protocol::types::CARGO_DROP_KIND,
         )),
     });
 
@@ -576,11 +620,11 @@ mod tests {
         let mut registry = ComponentRegistry::new();
         register_void_rush_components(&mut registry);
 
-        // Verify we have 21 components (14 replicated core + 3 mining + 3 room + 1 transient input)
+        // Verify we have 25 components (14 replicated core + 3 mining + 3 room + 4 combat + 1 transient input)
         assert_eq!(
             registry.components.len(),
-            21,
-            "Registry MUST contain 21 components (20 replicated + 1 input)"
+            25,
+            "Registry MUST contain 25 components (24 replicated + 1 input)"
         );
 
         // Verify canonical IDs 1-14 are present (M1020)
@@ -651,6 +695,7 @@ mod tests {
         let cmd1 = InputCommand {
             tick: 100,
             actions: vec![PlayerInputKind::Move { x: 1.0, y: 0.0 }],
+            actions_mask: 0,
             last_seen_input_tick: None,
         };
         let payload1 = rmp_serde::to_vec(&cmd1).unwrap();
@@ -679,6 +724,7 @@ mod tests {
         let cmd2 = InputCommand {
             tick: 100,
             actions: vec![PlayerInputKind::Move { x: 0.0, y: 1.0 }],
+            actions_mask: 0,
             last_seen_input_tick: None,
         };
         let payload2 = rmp_serde::to_vec(&cmd2).unwrap();
@@ -705,6 +751,7 @@ mod tests {
         let cmd3 = InputCommand {
             tick: 101,
             actions: vec![PlayerInputKind::Move { x: 0.5, y: 0.5 }],
+            actions_mask: 0,
             last_seen_input_tick: None,
         };
         let payload3 = rmp_serde::to_vec(&cmd3).unwrap();
@@ -744,6 +791,7 @@ mod tests {
         let cmd1 = InputCommand {
             tick: 100,
             actions: vec![],
+            actions_mask: 0,
             last_seen_input_tick: None,
         };
         replicator.apply(
@@ -766,6 +814,7 @@ mod tests {
         let cmd2 = InputCommand {
             tick: 100 + MAX_FORWARD_TICK_JUMP + 1,
             actions: vec![],
+            actions_mask: 0,
             last_seen_input_tick: None,
         };
         replicator.apply(
@@ -800,6 +849,7 @@ mod tests {
         let cmd = InputCommand {
             tick: 100,
             actions: vec![],
+            actions_mask: 0,
             last_seen_input_tick: None,
         };
 
@@ -831,6 +881,7 @@ mod tests {
         let cmd = InputCommand {
             tick: 100,
             actions: vec![],
+            actions_mask: 0,
             last_seen_input_tick: None,
         };
 
