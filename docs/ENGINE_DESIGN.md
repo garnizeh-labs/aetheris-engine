@@ -369,6 +369,10 @@ impl NetworkIdAllocator {
         NetworkId(self.next.fetch_add(1, Ordering::Relaxed))
     }
 }
+
+### 6.4 Authoritative Entity Definitions
+
+The engine treats `aetheris-protocol` as the single source of truth for entity types and their base vitals. Systems that handle spawning (e.g., `spawn_kind`) and damage logic use the `ENTITY_TYPE_*` constants and `get_default_stats()` utility. This centralization ensures that any balance changes to base ship stats only need to be made in the protocol crate to propagate across both the engine simulation and the client-side UI.
 ```
 
 ---
