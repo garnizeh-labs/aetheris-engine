@@ -332,3 +332,7 @@ pub struct SessionShip;
 /// Marker: this entity is a training dummy.
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct TrainingDummy;
+
+/// Marker: this entity is controlled by AI.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct AiControlled;

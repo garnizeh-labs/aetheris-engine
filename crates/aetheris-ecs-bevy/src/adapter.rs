@@ -10,14 +10,14 @@ use aetheris_protocol::types::{
     ClientId, ComponentKind, ENTITY_TYPE_AI_INTERCEPTOR, ENTITY_TYPE_ASTEROID,
     ENTITY_TYPE_CARGO_DROP, ENTITY_TYPE_DREADNOUGHT, ENTITY_TYPE_HAULER, ENTITY_TYPE_INTERCEPTOR,
     ENTITY_TYPE_PROJECTILE, ENTITY_TYPE_TRAINING_DUMMY, LocalId, NetworkId, NetworkIdAllocator,
-    ShipClass, ShipStats,
+    ShipClass, ShipStats, get_default_stats,
 };
 
 use crate::Networked;
 use crate::components::{
-    HullPoolComponent, LatestInput, PhysicsBody, RoomBoundsComponent, RoomDefinitionComponent,
-    RoomMembershipComponent, ShieldPoolComponent, ShipClassComponent, ShipStatsComponent,
-    TrainingDummy, TransformComponent, Velocity, WeaponComponent,
+    AiControlled, HullPoolComponent, LatestInput, PhysicsBody, RoomBoundsComponent,
+    RoomDefinitionComponent, RoomMembershipComponent, ShieldPoolComponent, ShipClassComponent,
+    ShipStatsComponent, TrainingDummy, TransformComponent, Velocity, WeaponComponent,
 };
 use crate::physics_consts::MASS_PER_ORE;
 use crate::registry::BoxedReplicator;
@@ -902,13 +902,14 @@ impl WorldState for BevyWorldAdapter {
         match kind {
             ENTITY_TYPE_INTERCEPTOR | ENTITY_TYPE_AI_INTERCEPTOR => {
                 // Interceptor (GDD §4.2 / M1020 §3.1)
+                let (hp, shield) = get_default_stats(kind);
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Interceptor),
                     ShipStatsComponent(ShipStats {
-                        hp: 200,
-                        max_hp: 200,
-                        shield: 100,
-                        max_shield: 100,
+                        hp,
+                        max_hp: hp,
+                        shield,
+                        max_shield: shield,
                         energy: 100,
                         max_energy: 100,
                         shield_regen_per_s: 5,
@@ -934,24 +935,33 @@ impl WorldState for BevyWorldAdapter {
                         last_seen_input_tick: None,
                     },
                     crate::components::PlayerName {
-                        name: "Player".to_string(),
+                        name: if kind == ENTITY_TYPE_AI_INTERCEPTOR {
+                            "AI Interceptor"
+                        } else {
+                            "Player"
+                        }
+                        .to_string(),
                     },
                     WeaponComponent(aetheris_protocol::types::Weapon {
                         cooldown_ticks: 30, // 0.5s
                         last_fired_tick: 0,
                     }),
                     ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: 100,
-                        max: 100,
+                        current: shield,
+                        max: shield,
                     }),
                     HullPoolComponent(aetheris_protocol::types::HullPool {
-                        current: 200,
-                        max: 200,
+                        current: hp,
+                        max: hp,
                     }),
                     crate::components::ShieldRegenTimer {
                         ticks_until_regen: 0,
                     },
                 ));
+
+                if kind == ENTITY_TYPE_AI_INTERCEPTOR {
+                    entity_mut.insert(AiControlled);
+                }
             }
             ENTITY_TYPE_PROJECTILE => {
                 // Projectile (VS-03 refinement)
@@ -996,16 +1006,17 @@ impl WorldState for BevyWorldAdapter {
             }
             ENTITY_TYPE_TRAINING_DUMMY => {
                 // Training Dummy (VS-03)
+                let (hp, shield) = get_default_stats(kind);
                 entity_mut.insert((
                     TrainingDummy,
                     ShipClassComponent(ShipClass::Hauler),
                     ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: 50,
-                        max: 50,
+                        current: shield,
+                        max: shield,
                     }),
                     HullPoolComponent(aetheris_protocol::types::HullPool {
-                        current: 100,
-                        max: 100,
+                        current: hp,
+                        max: hp,
                     }),
                     crate::components::PlayerName {
                         name: "Training Dummy".to_string(),
@@ -1025,13 +1036,14 @@ impl WorldState for BevyWorldAdapter {
             }
             ENTITY_TYPE_DREADNOUGHT => {
                 // Dreadnought (GDD §4.2 / M1020 §3.1)
+                let (hp, shield) = get_default_stats(kind);
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Dreadnought),
                     ShipStatsComponent(ShipStats {
-                        hp: 1500,
-                        max_hp: 1500,
-                        shield: 500,
-                        max_shield: 500,
+                        hp,
+                        max_hp: hp,
+                        shield,
+                        max_shield: shield,
                         energy: 300,
                         max_energy: 300,
                         shield_regen_per_s: 15,
@@ -1053,17 +1065,29 @@ impl WorldState for BevyWorldAdapter {
                     crate::components::PlayerName {
                         name: "Dreadnought".to_string(),
                     },
+                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
+                        current: shield,
+                        max: shield,
+                    }),
+                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                        current: hp,
+                        max: hp,
+                    }),
+                    crate::components::ShieldRegenTimer {
+                        ticks_until_regen: 0,
+                    },
                 ));
             }
             ENTITY_TYPE_HAULER => {
                 // Hauler (GDD §4.2 / M1020 §3.1)
+                let (hp, shield) = get_default_stats(kind);
                 entity_mut.insert((
                     ShipClassComponent(ShipClass::Hauler),
                     ShipStatsComponent(ShipStats {
-                        hp: 600,
-                        max_hp: 600,
-                        shield: 200,
-                        max_shield: 200,
+                        hp,
+                        max_hp: hp,
+                        shield,
+                        max_shield: shield,
                         energy: 150,
                         max_energy: 150,
                         shield_regen_per_s: 8,
@@ -1084,6 +1108,17 @@ impl WorldState for BevyWorldAdapter {
                     crate::components::MiningBeam::default(),
                     crate::components::PlayerName {
                         name: "Hauler".to_string(),
+                    },
+                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
+                        current: shield,
+                        max: shield,
+                    }),
+                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                        current: hp,
+                        max: hp,
+                    }),
+                    crate::components::ShieldRegenTimer {
+                        ticks_until_regen: 0,
                     },
                 ));
             }
