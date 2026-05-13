@@ -242,9 +242,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::env::var("AETHERIS_WT_ADDR").unwrap_or_else(|_| "[::]:4433".to_string());
         let wt_addr = wt_addr_str.parse()?;
         let auth_service_wt = auth_service.clone();
-        let wt_validator =
-            Arc::new(move |token: &str| -> bool { auth_service_wt.is_authorized(token) });
-        let wt = WebTransportBridge::new(wt_addr, Some(wt_validator)).await;
+        let wt_validator = Arc::new(move |token: &str| -> bool {
+            let authorized = auth_service_wt.is_authorized(token);
+            if authorized {
+                metrics::counter!("aetheris_webtransport_auth_allowed_total").increment(1);
+            } else {
+                metrics::counter!("aetheris_webtransport_auth_denied_total").increment(1);
+            }
+            authorized
+        });
+
+        use tracing::Instrument;
+        let wt = WebTransportBridge::new(wt_addr, Some(wt_validator))
+            .instrument(tracing::info_span!("webtransport_init", addr = %wt_addr))
+            .await;
         transport.add_transport(Box::new(wt));
 
         let config = aetheris_server::config::ServerConfig::load();
@@ -301,7 +312,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let shutdown_auth_tx = shutdown_tx.clone();
-        use tracing::Instrument;
         tokio::spawn(
             async move {
                 #[cfg(unix)]

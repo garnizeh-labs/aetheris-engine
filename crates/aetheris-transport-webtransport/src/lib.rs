@@ -270,24 +270,29 @@ async fn handle_incoming_connection(
 
     // First-Message Auth: wait for the first reliable stream and read the token.
     if let Some(validator) = auth_validator {
-        let auth_result = async {
-            match tokio::time::timeout(std::time::Duration::from_secs(5), connection.accept_bi())
-                .await
-            {
-                Ok(Ok((_send, recv))) => {
+        let auth_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            match connection.accept_bi().await {
+                Ok((_send, recv)) => {
                     use tokio::io::AsyncReadExt;
                     let mut buffer = String::new();
-                    // Read up to 1024 bytes for the token
-                    if recv.take(1024).read_to_string(&mut buffer).await.is_ok() {
+                    // Read up to 1024 bytes for the token (bounded read)
+                    if tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        recv.take(1024).read_to_string(&mut buffer),
+                    )
+                    .await
+                    .is_ok_and(|res| res.is_ok())
+                    {
                         validator(buffer.trim())
                     } else {
                         false
                     }
                 }
-                _ => false,
+                Err(_) => false,
             }
-        }
-        .await;
+        })
+        .await
+        .unwrap_or(false);
 
         if !auth_result {
             warn!("WebTransport connection rejected: invalid or missing First-Message Auth token");
@@ -493,10 +498,15 @@ async fn generate_self_signed_identity() -> (Identity, String) {
         .await
         .expect("Failed to write cert version");
 
+    let validity_days = (params.not_after - params.not_before).whole_days();
+
     info!("--------------------------------------------------");
     info!("WEBTRANSPORT SELF-SIGNED CERTIFICATE GENERATED");
     info!("SHA-256 Hash (Base64): {}", hash_b64);
-    info!("Valid for: 13 days (Chrome serverCertificateHashes constraint: <= 14 days)");
+    info!(
+        "Valid for: {} days (Chrome serverCertificateHashes constraint: <= 14 days)",
+        validity_days
+    );
     info!("Saved to: {}", cert_dir.display());
     info!("--------------------------------------------------");
 
