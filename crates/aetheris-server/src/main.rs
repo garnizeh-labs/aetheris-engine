@@ -241,7 +241,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let wt_addr_str =
             std::env::var("AETHERIS_WT_ADDR").unwrap_or_else(|_| "[::]:4433".to_string());
         let wt_addr = wt_addr_str.parse()?;
-        let wt = WebTransportBridge::new(wt_addr).await;
+        let auth_service_wt = auth_service.clone();
+        let wt_validator =
+            Arc::new(move |token: &str| -> bool { auth_service_wt.is_authorized(token) });
+        let wt = WebTransportBridge::new(wt_addr, Some(wt_validator)).await;
         transport.add_transport(Box::new(wt));
 
         let config = aetheris_server::config::ServerConfig::load();

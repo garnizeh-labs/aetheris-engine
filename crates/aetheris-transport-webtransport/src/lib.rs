@@ -22,6 +22,7 @@ use aetheris_protocol::events::NetworkEvent;
 use aetheris_protocol::traits::{ClientId, GameTransport, TransportError};
 
 type ConnectionMap = HashMap<ClientId, Connection>;
+type AuthValidator = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// A WebTransport bridge that implements `GameTransport`.
 pub struct WebTransportBridge {
@@ -31,6 +32,7 @@ pub struct WebTransportBridge {
     connections: Arc<Mutex<ConnectionMap>>,
     connected_client_count: Arc<std::sync::atomic::AtomicUsize>,
     cert_hash: String,
+    auth_validator: Option<AuthValidator>,
 }
 
 impl WebTransportBridge {
@@ -40,7 +42,7 @@ impl WebTransportBridge {
     ///
     /// # Panics
     /// Panics if the endpoint creation fails.
-    pub async fn new(addr: SocketAddr) -> Self {
+    pub async fn new(addr: SocketAddr, auth_validator: Option<AuthValidator>) -> Self {
         let (identity, cert_hash) = generate_self_signed_identity().await;
 
         let config = ServerConfig::builder()
@@ -63,6 +65,7 @@ impl WebTransportBridge {
             connections,
             connected_client_count,
             cert_hash,
+            auth_validator,
         };
 
         server.spawn_listener(endpoint);
@@ -74,6 +77,7 @@ impl WebTransportBridge {
         let events = Arc::clone(&self.events);
         let connections = Arc::clone(&self.connections);
         let client_count = Arc::clone(&self.connected_client_count);
+        let validator = self.auth_validator.clone();
 
         tokio::spawn(async move {
             if let Ok(local_addr) = endpoint.local_addr() {
@@ -89,6 +93,7 @@ impl WebTransportBridge {
                 let events_inner = Arc::clone(&events);
                 let connections_inner = Arc::clone(&connections);
                 let count_inner = Arc::clone(&client_count);
+                let validator_inner = validator.clone();
 
                 tokio::spawn(async move {
                     handle_incoming_connection(
@@ -96,6 +101,7 @@ impl WebTransportBridge {
                         events_inner,
                         connections_inner,
                         count_inner,
+                        validator_inner,
                     )
                     .await;
                 });
@@ -228,6 +234,7 @@ async fn handle_incoming_connection(
     events: Arc<Mutex<VecDeque<NetworkEvent>>>,
     connections: Arc<Mutex<ConnectionMap>>,
     connected_client_count: Arc<std::sync::atomic::AtomicUsize>,
+    auth_validator: Option<AuthValidator>,
 ) {
     info!("Handling incoming WebTransport connection...");
     let session_request = match incoming.await {
@@ -260,6 +267,33 @@ async fn handle_incoming_connection(
             return;
         }
     };
+
+    // First-Message Auth: wait for the first reliable stream and read the token.
+    if let Some(validator) = auth_validator {
+        let auth_result = async {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), connection.accept_bi())
+                .await
+            {
+                Ok(Ok((_send, recv))) => {
+                    use tokio::io::AsyncReadExt;
+                    let mut buffer = String::new();
+                    // Read up to 1024 bytes for the token
+                    if recv.take(1024).read_to_string(&mut buffer).await.is_ok() {
+                        validator(buffer.trim())
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            }
+        }
+        .await;
+
+        if !auth_result {
+            warn!("WebTransport connection rejected: invalid or missing First-Message Auth token");
+            return;
+        }
+    }
 
     let client_id = ClientId(rand::random());
     {
@@ -366,7 +400,7 @@ async fn handle_incoming_connection(
 async fn generate_self_signed_identity() -> (Identity, String) {
     // Bump this constant whenever the cert parameters change (e.g. added SANs)
     // so that old cached certs are automatically invalidated.
-    const CERT_VERSION: &str = "v2";
+    const CERT_VERSION: &str = "v3";
 
     let cert_dir = std::path::PathBuf::from("target/dev-certs");
     let cert_path = cert_dir.join("cert.pem");
@@ -425,10 +459,8 @@ async fn generate_self_signed_identity() -> (Identity, String) {
         .push(rcgen::SanType::IpAddress(std::net::IpAddr::V6(
             std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1),
         )));
-    params.not_before = time::OffsetDateTime::now_utc();
-    params.not_after = time::OffsetDateTime::now_utc()
-        .checked_add(time::Duration::days(13))
-        .expect("Date overflow");
+    params.not_before = time::OffsetDateTime::now_utc() - time::Duration::days(1);
+    params.not_after = time::OffsetDateTime::now_utc() + time::Duration::days(10);
 
     let key_pair = KeyPair::generate().expect("Failed to generate key pair");
     let cert = params
@@ -484,7 +516,7 @@ mod tests {
     async fn test_concurrent_send_unreliable_load() {
         // Start server
         let addr = "127.0.0.1:0".parse().unwrap();
-        let mut server = WebTransportBridge::new(addr).await;
+        let mut server = WebTransportBridge::new(addr, None).await;
         let server_addr = server._endpoint.local_addr().unwrap();
 
         let num_clients = 100;
