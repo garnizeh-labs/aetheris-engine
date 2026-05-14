@@ -27,7 +27,7 @@ use aetheris_protocol::events::NetworkEvent;
 use aetheris_protocol::traits::PlatformTransport;
 use aetheris_protocol::types::ClientId;
 
-/// Renet-based implementation of the [`GameTransport`] trait.
+/// Renet-based implementation of the [`PlatformTransport`] trait.
 pub struct RenetTransport {
     server: Mutex<RenetServer>,
     transport: Mutex<NetcodeServerTransport>,
