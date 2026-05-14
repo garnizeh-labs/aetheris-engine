@@ -22,6 +22,7 @@ pub use multi_transport::MultiTransport;
 pub use tick::TickScheduler;
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "phase1")]
 /// Bootstraps a Phase 1 world with the default engine components and optional extra registrations.
 pub fn bootstrap_phase1_world(
     tick_rate: u64,
