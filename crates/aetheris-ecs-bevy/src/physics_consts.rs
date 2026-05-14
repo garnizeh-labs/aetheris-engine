@@ -17,5 +17,5 @@ pub const DEFAULT_MAX_VELOCITY: f32 = 100.0;
 /// Applied as: velocity *= 1.0 / (1.0 + drag * dt).
 pub const DEFAULT_DRAG: f32 = 2.0;
 
-/// Mass added to the entity for each unit of ore in the `CargoHold` (c).
-pub const MASS_PER_ORE: f32 = 2.0;
+/// Mass added to the entity for each unit of payload in the `DataStore` (c).
+pub const MASS_PER_PAYLOAD: f32 = 2.0;

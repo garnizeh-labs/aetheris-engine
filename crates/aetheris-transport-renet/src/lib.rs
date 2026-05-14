@@ -24,7 +24,7 @@ use socket2::{Domain, Socket, Type};
 use aetheris_protocol::MAX_SAFE_PAYLOAD_SIZE;
 use aetheris_protocol::error::TransportError;
 use aetheris_protocol::events::NetworkEvent;
-use aetheris_protocol::traits::GameTransport;
+use aetheris_protocol::traits::PlatformTransport;
 use aetheris_protocol::types::ClientId;
 
 /// Renet-based implementation of the [`GameTransport`] trait.
@@ -213,7 +213,7 @@ impl RenetTransport {
 }
 
 #[async_trait]
-impl GameTransport for RenetTransport {
+impl PlatformTransport for RenetTransport {
     #[tracing::instrument(skip(self, data), fields(client_id = %client_id.0, size = data.len()))]
     async fn send_unreliable(
         &self,
@@ -454,6 +454,15 @@ impl GameTransport for RenetTransport {
             return 0; // Or panic? Given the poll_events change, we might want this to return Result too, but for now we follow the pattern.
         };
         server.connected_clients()
+    }
+
+    async fn disconnect(&self, client_id: ClientId) -> Result<(), TransportError> {
+        let mut server = self
+            .server
+            .lock()
+            .map_err(|e| TransportError::Io(std::io::Error::other(e.to_string())))?;
+        server.disconnect(client_id.0);
+        Ok(())
     }
 }
 

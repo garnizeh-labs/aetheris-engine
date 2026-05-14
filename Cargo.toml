@@ -24,9 +24,9 @@ aetheris-transport-webtransport = { path = "crates/aetheris-transport-webtranspo
 aetheris-transport-quinn = { path = "crates/aetheris-transport-quinn", version = "0.11.0" }
 
 # Protocol (published — garnizeh-labs/aetheris-protocol)
-aetheris-protocol = { version = "0.2.22" }
-aetheris-encoder-serde = { version = "0.2.22" }
-aetheris-encoder-bitpack = { version = "0.2.22" }
+aetheris-protocol = { version = "0.2.23" }
+aetheris-encoder-serde = { version = "0.2.23" }
+aetheris-encoder-bitpack = { version = "0.2.23" }
 
 # Core Traits & Utilities
 futures = "0.3"
@@ -39,7 +39,7 @@ ulid = { version = "1.2.1", default-features = false }
 base64 = "0.22.1"
 sha2 = "0.11.0"
 hex = "0.4"
-rustls = { version = "0.23.38", features = ["ring"] }
+rustls = { version = "0.23.40", features = ["ring"] }
 
 # Networking — Phase 1 (renet) & Phase 3 (quinn / webtransport)
 renet = "2.0.0"
@@ -81,7 +81,7 @@ tikv-jemallocator = "0.6.1"
 tikv-jemalloc-ctl = { version = "0.6.1", features = ["stats"] }
 opentelemetry = { version = "0.31.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "trace"] }
-opentelemetry-otlp = { version = "0.31.1", features = ["grpc-tonic", "trace"] }
+opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic", "trace"] }
 tracing-opentelemetry = "0.32.1"
 
 # Web & API

@@ -8,7 +8,7 @@ use tracing::{Instrument, debug_span, error, info_span};
 use aetheris_protocol::error::EncodeError;
 use aetheris_protocol::events::{FragmentedEvent, NetworkEvent};
 use aetheris_protocol::reassembler::Reassembler;
-use aetheris_protocol::traits::{Encoder, GameTransport, WorldState};
+use aetheris_protocol::traits::{Encoder, PlatformTransport, WorldState};
 use aetheris_protocol::types::{ClientId, NetworkId};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -35,8 +35,8 @@ pub struct TickScheduler {
     current_tick: u64,
     auth_service: Arc<dyn crate::auth::AuthSessionVerifier>,
 
-    /// Maps `ClientId` -> (Session JTI, owned session ship `NetworkId`)
-    authenticated_clients: HashMap<ClientId, (String, Option<NetworkId>)>,
+    /// Maps `ClientId` -> (Verified Session, owned session agent `NetworkId`)
+    authenticated_clients: HashMap<ClientId, (crate::auth::VerifiedSession, Option<NetworkId>)>,
     /// Tracks when each client was successfully authenticated.
     auth_timestamps: HashMap<ClientId, Instant>,
     reassembler: Reassembler,
@@ -94,7 +94,7 @@ impl TickScheduler {
     /// Runs the infinite game loop until the shutdown token is cancelled.
     pub async fn run(
         &mut self,
-        transport: Box<dyn GameTransport>,
+        transport: Box<dyn PlatformTransport>,
         mut world: Box<dyn WorldState>,
         encoder: Box<dyn Encoder>,
         mut shutdown: broadcast::Receiver<()>,
@@ -181,7 +181,7 @@ impl TickScheduler {
     #[allow(clippy::too_many_lines)]
     pub async fn tick_step(
         &mut self,
-        transport_lock: &RwLock<Box<dyn GameTransport>>,
+        transport_lock: &RwLock<Box<dyn PlatformTransport>>,
         world: &mut dyn WorldState,
         encoder: &dyn Encoder,
     ) {
@@ -229,11 +229,16 @@ impl TickScheduler {
             .count() as u64;
         metrics::counter!("aetheris_packets_inbound_total").increment(inbound_count);
 
+        let mut to_disconnect = Vec::new();
+
         // Periodic Session Validation (every 60 ticks / ~1s)
         if tick.is_multiple_of(60) {
             let mut to_remove = Vec::new();
-            for (&client_id, (jti, _)) in &self.authenticated_clients {
-                if !self.auth_service.is_session_authorized(jti, Some(tick)) {
+            for (&client_id, (session, _)) in &self.authenticated_clients {
+                if !self
+                    .auth_service
+                    .is_session_authorized(&session.jti, Some(tick))
+                {
                     tracing::warn!(?client_id, "Session invalidated during periodic check");
                     to_remove.push(client_id);
                 }
@@ -244,6 +249,9 @@ impl TickScheduler {
                 }
                 self.auth_timestamps.remove(&client_id);
                 metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
+
+                // Also disconnect the transport
+                to_disconnect.push(client_id);
             }
         }
 
@@ -331,10 +339,12 @@ impl TickScheduler {
                     }
                     NetworkEvent::ClearWorld { client_id, .. }
                     | NetworkEvent::StartSession { client_id }
-                    | NetworkEvent::RequestSystemManifest { client_id }
-                    | NetworkEvent::GameEvent { client_id, .. }
+                    | NetworkEvent::RequestWorkspaceManifest { client_id }
+                    | NetworkEvent::PlatformEvent { client_id, .. }
                     | NetworkEvent::StressTest { client_id, .. }
                     | NetworkEvent::ReplicationBatch { client_id, .. }
+                    | NetworkEvent::EntitySpawned { client_id, .. }
+                    | NetworkEvent::EntityDespawned { client_id, .. }
                     | NetworkEvent::Spawn { client_id, .. } => (client_id, Vec::new(), false),
                     NetworkEvent::Pong { .. } | NetworkEvent::Auth { .. } => {
                         (aetheris_protocol::types::ClientId(0), Vec::new(), false)
@@ -346,9 +356,13 @@ impl TickScheduler {
                 }
 
                 // Stage 2.2: Auth & Protocol Decode
-                let jti = if let Some((jti, _)) = self.authenticated_clients.get(&client_id) {
+                let session = if let Some((session, _)) = self.authenticated_clients.get(&client_id)
+                {
                     // Re-validate session on every message to refresh sliding window / catch revocation
-                    if !self.auth_service.is_session_authorized(jti, Some(tick)) {
+                    if !self
+                        .auth_service
+                        .is_session_authorized(&session.jti, Some(tick))
+                    {
                         tracing::warn!(?client_id, "Session revoked; dropping client");
                         if let Some((_, Some(nid))) = self.authenticated_clients.remove(&client_id)
                         {
@@ -358,7 +372,7 @@ impl TickScheduler {
                         metrics::counter!("aetheris_unprivileged_packets_total").increment(1);
                         continue;
                     }
-                    jti
+                    session
                 } else {
                     // Client not authenticated yet; only accept Auth message
                     match encoder.decode_event(&raw_data) {
@@ -366,17 +380,50 @@ impl TickScheduler {
                             tracing::info!(?client_id, "Auth message received");
                             match self.auth_service.verify_session(&session_token, Some(tick)) {
                                 Ok(session) => {
-                                    tracing::info!(?client_id, "Client authenticated successfully");
+                                    tracing::info!(
+                                        ?client_id,
+                                        player_id = %session.player_id,
+                                        "Client authenticated successfully"
+                                    );
+
+                                    // M10160: Kick old sessions for the same player.
+                                    // This prevents "ghost" entities from persisting after a quick reload.
+                                    let old_clients: Vec<ClientId> = self
+                                        .authenticated_clients
+                                        .iter()
+                                        .filter(|(id, (s, _))| {
+                                            s.player_id == session.player_id && **id != client_id
+                                        })
+                                        .map(|(id, _)| *id)
+                                        .collect();
+
+                                    for old_id in old_clients {
+                                        tracing::info!(
+                                            ?old_id,
+                                            new_client_id = ?client_id,
+                                            "Kicking ghost session for same player_id"
+                                        );
+                                        if let Some((_, Some(nid))) =
+                                            self.authenticated_clients.remove(&old_id)
+                                        {
+                                            let _ = world.despawn_networked(nid);
+                                        }
+                                        self.auth_timestamps.remove(&old_id);
+
+                                        // Collect for safe disconnection after releasing transport lock
+                                        to_disconnect.push(old_id);
+                                    }
 
                                     self.authenticated_clients
-                                        .insert(client_id, (session.jti, None));
+                                        .insert(client_id, (session, None));
+
                                     // Record when auth completed so we can measure server-side
                                     // possession latency (A-08 profiling metric).
                                     self.auth_timestamps.insert(client_id, Instant::now());
 
                                     tracing::info!(
                                         ?client_id,
-                                        "[Auth] Client authenticated — waiting for StartSession to spawn ship"
+                                        "[Auth] Client authenticated — waiting for StartSession to spawn agent"
                                     );
                                     continue;
                                 }
@@ -433,7 +480,7 @@ impl TickScheduler {
                                 rotate,
                                 "StressTest event received from authenticated client"
                             );
-                            if can_run_playground_command(jti) {
+                            if can_run_playground_command(&session.jti) {
                                 // M10105 — Safety cap to prevent server-side resource exhaustion.
                                 const MAX_STRESS: u16 = 1000;
                                 let capped_count = count.min(MAX_STRESS);
@@ -466,7 +513,7 @@ impl TickScheduler {
                             rot,
                             ..
                         } => {
-                            if can_run_playground_command(jti) {
+                            if can_run_playground_command(&session.jti) {
                                 let network_id =
                                     world.spawn_kind_for(entity_type, x, y, rot, client_id);
 
@@ -483,25 +530,28 @@ impl TickScheduler {
                             }
                         }
                         NetworkEvent::StartSession { .. } => {
-                            if let Some((_, ship_id)) =
+                            if let Some((_, agent_id)) =
                                 self.authenticated_clients.get_mut(&client_id)
                             {
-                                let network_id = if let Some(nid) = ship_id {
+                                let network_id = if let Some(nid) = agent_id {
                                     tracing::info!(
                                         ?client_id,
                                         ?nid,
-                                        "Reusing existing session ship"
+                                        "Reusing existing session agent"
                                     );
                                     *nid
                                 } else {
-                                    let nid = world.spawn_session_ship(1, 0.0, 0.0, 0.0, client_id);
-                                    *ship_id = Some(nid);
+                                    let nid =
+                                        world.spawn_session_agent(1, 0.0, 0.0, 0.0, client_id);
+                                    *agent_id = Some(nid);
                                     nid
                                 };
 
                                 world.queue_reliable_event(
                                     Some(client_id),
-                                    aetheris_protocol::events::GameEvent::Possession { network_id },
+                                    aetheris_protocol::events::PlatformEvent::Possession {
+                                        network_id,
+                                    },
                                 );
 
                                 // Record server-side auth→possession latency (A-08 profiling).
@@ -513,22 +563,22 @@ impl TickScheduler {
                                 tracing::info!(
                                     ?client_id,
                                     network_id = network_id.0,
-                                    "[StartSession] Session ship assigned (spawned or reused) — Possession event queued"
+                                    "[StartSession] Session agent assigned (spawned or reused) — Possession event queued"
                                 );
                             }
                         }
                         NetworkEvent::ClearWorld { .. } => {
-                            if can_run_playground_command(jti) {
+                            if can_run_playground_command(&session.jti) {
                                 tracing::info!(?client_id, "ClearWorld command executed");
                                 world.clear_world();
                                 // Reset the client's entity-ID tracking so that a subsequent
-                                // StartSession can spawn a new session ship.  Without this,
-                                // the "already_has_ship" guard blocks the next StartSession
+                                // StartSession can spawn a new session agent.  Without this,
+                                // the "already_has_agent" guard blocks the next StartSession
                                 // even though all entities were just despawned.
-                                if let Some((_, ship_id)) =
+                                if let Some((_, agent_id)) =
                                     self.authenticated_clients.get_mut(&client_id)
                                 {
-                                    *ship_id = None;
+                                    *agent_id = None;
                                 }
                                 // Queue a reliable ClearWorld ack to send after this block.
                                 // EnteredSpan is !Send so we cannot .await inside this scope.
@@ -541,11 +591,11 @@ impl TickScheduler {
                                     .increment(1);
                             }
                         }
-                        NetworkEvent::RequestSystemManifest { .. } => {
-                            let jti = if let Some((jti, _)) =
+                        NetworkEvent::RequestWorkspaceManifest { .. } => {
+                            let jti = if let Some((session, _)) =
                                 self.authenticated_clients.get(&client_id)
                             {
-                                jti
+                                &session.jti
                             } else {
                                 ""
                             };
@@ -553,7 +603,9 @@ impl TickScheduler {
                             let manifest = self.get_filtered_manifest(jti);
                             world.queue_reliable_event(
                                 Some(client_id),
-                                aetheris_protocol::events::GameEvent::SystemManifest { manifest },
+                                aetheris_protocol::events::PlatformEvent::WorkspaceManifest {
+                                    manifest,
+                                },
                             );
                         }
                         NetworkEvent::ReplicationBatch { events, .. } => {
@@ -695,6 +747,7 @@ impl TickScheduler {
             };
 
             for id in targets {
+                tracing::info!(?id, event = ?wire_event, "Sending reliable event to client");
                 let network_event = wire_event.clone().into_network_event(id);
                 match encoder.encode_event(&network_event) {
                     Ok(data) => {
@@ -841,17 +894,24 @@ impl TickScheduler {
 
         metrics::histogram!("aetheris_tick_duration_seconds")
             .record(tick_start.elapsed().as_secs_f64());
+
+        // Stage 6: Disconnect any kicked clients after releasing transport lock
+        drop(transport);
+        for id in to_disconnect {
+            let transport = transport_lock.read().await;
+            let _ = transport.disconnect(id).await;
+        }
     }
 
     fn get_delta_targets(
         world: &dyn WorldState,
-        clients: &HashMap<ClientId, (String, Option<NetworkId>)>,
+        clients: &HashMap<ClientId, (crate::auth::VerifiedSession, Option<NetworkId>)>,
         entity_id: NetworkId,
     ) -> DeltaTargets {
-        if let Some(room_id) = world.get_entity_room(entity_id) {
+        if let Some(workspace_id) = world.get_entity_workspace(entity_id) {
             let mut recipients = Vec::new();
             for &client_id in clients.keys() {
-                if world.get_client_room(client_id) == Some(room_id) {
+                if world.get_client_workspace(client_id) == Some(workspace_id) {
                     recipients.push(client_id);
                 }
             }

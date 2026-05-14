@@ -11,7 +11,7 @@ use aetheris_ecs_bevy::BevyWorldAdapter;
 use aetheris_protocol::auth::v1::{OtpRequest, OtpRequestAck};
 use aetheris_protocol::events::{ComponentUpdate, NetworkEvent, ReplicationEvent};
 use aetheris_protocol::test_doubles::MockTransport;
-use aetheris_protocol::traits::{Encoder, GameTransport, WorldState};
+use aetheris_protocol::traits::{Encoder, PlatformTransport, WorldState};
 use aetheris_protocol::types::{ClientId, ComponentKind, NetworkId};
 use aetheris_server::TickScheduler;
 use aetheris_server::auth::AuthServiceImpl;
@@ -155,7 +155,7 @@ async fn test_entity_hijacking_prevention() {
                 .unwrap()
                 .spawn_kind_for(kind, x, y, rot, client_id)
         }
-        fn spawn_session_ship(
+        fn spawn_session_agent(
             &mut self,
             kind: u16,
             x: f32,
@@ -166,7 +166,7 @@ async fn test_entity_hijacking_prevention() {
             self.adapter
                 .lock()
                 .unwrap()
-                .spawn_session_ship(kind, x, y, rot, client_id)
+                .spawn_session_agent(kind, x, y, rot, client_id)
         }
         fn clear_world(&mut self) {
             self.adapter.lock().unwrap().clear_world();
@@ -220,7 +220,7 @@ async fn test_entity_hijacking_prevention() {
                     let mut query = world.query::<(
                         bevy_ecs::prelude::Entity,
                         &aetheris_ecs_bevy::components::NetworkOwner,
-                        &aetheris_ecs_bevy::components::SessionShip,
+                        &aetheris_ecs_bevy::components::SessionAgent,
                     )>();
                     query
                         .iter(world)
@@ -416,7 +416,7 @@ struct SharedState {
 
 struct TransportRef(SharedState);
 #[async_trait::async_trait]
-impl GameTransport for TransportRef {
+impl PlatformTransport for TransportRef {
     async fn send_unreliable(
         &self,
         id: ClientId,
@@ -451,6 +451,13 @@ impl GameTransport for TransportRef {
         &mut self,
     ) -> Result<Vec<NetworkEvent>, aetheris_protocol::error::TransportError> {
         Ok(self.0.transport.lock().await.poll_events().await?)
+    }
+    async fn disconnect(
+        &self,
+        id: ClientId,
+    ) -> Result<(), aetheris_protocol::error::TransportError> {
+        let _ = self.0.transport.lock().await.disconnect(id).await;
+        Ok(())
     }
     async fn connected_client_count(&self) -> usize {
         self.0.transport.lock().await.connected_client_count().await

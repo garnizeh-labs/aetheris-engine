@@ -262,7 +262,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tick_rate = config.tick_rate;
         let mut world = BevyWorldAdapter::new(bevy_ecs::world::World::new(), tick_rate);
         let mut registry = aetheris_ecs_bevy::registry::ComponentRegistry::new();
-        aetheris_ecs_bevy::registry::register_void_rush_components(&mut registry);
+        aetheris_ecs_bevy::registry::register_platform_components(&mut registry);
 
         for descriptor in registry.components.values() {
             world.register_replicator(descriptor.replicator.clone());

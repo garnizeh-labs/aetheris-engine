@@ -1,5 +1,5 @@
 use aetheris_protocol::events::{ComponentUpdate, ReplicationEvent};
-use aetheris_protocol::types::{ComponentKind, NetworkId, PROJECTILE_MARKER_KIND};
+use aetheris_protocol::types::{BEAM_MARKER_KIND, ComponentKind, NetworkId};
 use bevy_ecs::change_detection::Tick;
 use bevy_ecs::prelude::{Component, Entity, World};
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,8 @@ use std::sync::Arc;
 pub enum ComponentScope {
     /// Engine core components (Transport, Velocity, etc.)
     Core,
-    /// Game-specific components (`ShipStats`, Mining, etc.)
-    Game,
+    /// Platform-specific components (`AgentProperties`, Extraction, etc.)
+    Platform,
     /// Purely visual/client-side components.
     Visual,
 }
@@ -190,12 +190,12 @@ impl ComponentReplicator for InputCommandReplicator {
 }
 
 impl InputCommandReplicator {
-    /// Validates that the entity exists, has an owner, and is a session ship.
+    /// Validates that the entity exists, has an owner, and is a session agent.
     fn validate_access_gate(world: &World, entity: Entity, nid: NetworkId) -> bool {
-        use crate::components::{NetworkOwner, SessionShip};
+        use crate::components::{NetworkOwner, SessionAgent};
 
         let has_owner = world.get::<NetworkOwner>(entity).is_some();
-        let has_session = world.get::<SessionShip>(entity).is_some();
+        let has_session = world.get::<SessionAgent>(entity).is_some();
 
         tracing::debug!(
             network_id = nid.0,
@@ -216,7 +216,7 @@ impl InputCommandReplicator {
             tracing::warn!(
                 network_id = nid.0,
                 has_owner,
-                "[InputCmd] REJECTED: Entity is not a session ship (missing SessionShip marker)"
+                "[InputCmd] REJECTED: Entity is not a session agent (missing SessionAgent marker)"
             );
             return false;
         }
@@ -278,13 +278,26 @@ impl InputCommandReplicator {
 
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             if let Some(mut latest) = entity_mut.get_mut::<LatestInput>() {
-                // Anti-replay: Only apply if the new tick is strictly greater and within a reasonable window
-                if command.tick > latest.last_client_tick
+                // M1038: Anti-replay and window validation.
+                // We allow a command if it satisfies EITHER:
+                // 1. It is a valid progression from the last heard client tick (within 600 ticks).
+                // 2. It is roughly aligned with our authoritative ServerTick resource (Resync Fallback).
+
+                let is_valid_jump = command.tick > latest.last_client_tick
                     && command.tick
                         <= latest
                             .last_client_tick
-                            .saturating_add(MAX_FORWARD_TICK_JUMP)
-                {
+                            .saturating_add(MAX_FORWARD_TICK_JUMP);
+
+                let is_in_server_window = command.tick
+                    <= server_tick.saturating_add(MAX_FORWARD_TICK_JUMP)
+                    && command.tick >= server_tick.saturating_sub(MAX_FORWARD_TICK_JUMP);
+
+                let last_tick_in_window = latest.last_client_tick
+                    <= server_tick.saturating_add(MAX_FORWARD_TICK_JUMP)
+                    && latest.last_client_tick >= server_tick.saturating_sub(MAX_FORWARD_TICK_JUMP);
+
+                if is_valid_jump || (is_in_server_window && !last_tick_in_window) {
                     let old_tick = latest.last_client_tick;
                     latest.last_client_tick = command.tick;
 
@@ -348,11 +361,11 @@ impl InputCommandReplicator {
 pub trait ReplicatableComponent: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>> {}
 impl<T: Component + Clone + TryInto<Vec<u8>> + TryFrom<Vec<u8>>> ReplicatableComponent for T {}
 
-/// Registers all 31 canonical Void Rush components into the provided registry.
+/// Registers all 31 canonical platform components into the provided registry.
 ///
 /// This implements the authoritative component list for M1020 (14 replicated + 17 server-only).
 #[allow(clippy::wildcard_imports, clippy::too_many_lines)]
-pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
+pub fn register_platform_components(registry: &mut ComponentRegistry) {
     use crate::components::*;
 
     // --- REPLICATED COMPONENTS (1-14) ---
@@ -377,33 +390,35 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         replicator: Arc::new(DefaultReplicator::<Velocity>::new(ComponentKind(2))),
     });
 
-    // 3: ShipStats (Game)
+    // 3: AgentProperties (Platform)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(3),
-        name: "ShipStats",
-        scope: ComponentScope::Game,
+        name: "AgentProperties",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<ShipStatsComponent>::new(ComponentKind(
-            3,
+        replicator: Arc::new(DefaultReplicator::<AgentPropertiesComponent>::new(
+            ComponentKind(3),
+        )),
+    });
+
+    // 4: AgentConfiguration (Platform)
+    registry.register(ComponentDescriptor {
+        kind: ComponentKind(4),
+        name: "AgentConfiguration",
+        scope: ComponentScope::Platform,
+        classification: ComponentClassification::Simulated,
+        replicator: Arc::new(DefaultReplicator::<AgentConfiguration>::new(ComponentKind(
+            4,
         ))),
     });
 
-    // 4: Loadout (Game)
-    registry.register(ComponentDescriptor {
-        kind: ComponentKind(4),
-        name: "Loadout",
-        scope: ComponentScope::Game,
-        classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<Loadout>::new(ComponentKind(4))),
-    });
-
-    // 5: ShipClass (Core)
+    // 5: AgentKind (Core)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(5),
-        name: "ShipClass",
+        name: "AgentKind",
         scope: ComponentScope::Core,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<ShipClassComponent>::new(ComponentKind(
+        replicator: Arc::new(DefaultReplicator::<AgentKindComponent>::new(ComponentKind(
             5,
         ))),
     });
@@ -417,40 +432,42 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         replicator: Arc::new(DefaultReplicator::<PlayerName>::new(ComponentKind(6))),
     });
 
-    // 7: FactionTag (Game)
+    // 7: FactionTag (Platform)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(7),
         name: "FactionTag",
-        scope: ComponentScope::Game,
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
         replicator: Arc::new(DefaultReplicator::<FactionTag>::new(ComponentKind(7))),
     });
 
-    // 8: AsteroidHP (Game)
+    // 8: ResourceIntegrity (Platform)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(8),
-        name: "AsteroidHP",
-        scope: ComponentScope::Game,
+        name: "ResourceIntegrity",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<AsteroidHP>::new(ComponentKind(8))),
+        replicator: Arc::new(DefaultReplicator::<ResourceIntegrity>::new(ComponentKind(
+            8,
+        ))),
     });
 
-    // 9: AsteroidYield (Game)
+    // 9: ResourceYield (Platform)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(9),
-        name: "AsteroidYield",
-        scope: ComponentScope::Game,
+        name: "ResourceYield",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<AsteroidYield>::new(ComponentKind(9))),
+        replicator: Arc::new(DefaultReplicator::<ResourceYield>::new(ComponentKind(9))),
     });
 
-    // 10: LootDrop (Game)
+    // 10: DataDrop (Platform)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(10),
-        name: "LootDrop",
-        scope: ComponentScope::Game,
+        name: "DataDrop",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<LootDrop>::new(ComponentKind(10))),
+        replicator: Arc::new(DefaultReplicator::<DataDrop>::new(ComponentKind(10))),
     });
 
     // 11: Station (Core)
@@ -462,24 +479,22 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         replicator: Arc::new(DefaultReplicator::<Station>::new(ComponentKind(11))),
     });
 
-    // 12: JumpGate (Core)
+    // 12: ZoneGate (Core)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(12),
-        name: "JumpGate",
+        name: "ZoneGate",
         scope: ComponentScope::Core,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<JumpGate>::new(ComponentKind(12))),
+        replicator: Arc::new(DefaultReplicator::<ZoneGate>::new(ComponentKind(12))),
     });
 
-    // 13: ProjectileMarker (Game)
+    // 13: BeamMarker (Platform)
     registry.register(ComponentDescriptor {
         kind: ComponentKind(13),
-        name: "ProjectileMarker",
-        scope: ComponentScope::Game,
+        name: "BeamMarker",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<ProjectileMarker>::new(
-            PROJECTILE_MARKER_KIND,
-        )),
+        replicator: Arc::new(DefaultReplicator::<BeamMarker>::new(BEAM_MARKER_KIND)),
     });
 
     // 14: DockedState (Core)
@@ -491,113 +506,113 @@ pub fn register_void_rush_components(registry: &mut ComponentRegistry) {
         replicator: Arc::new(DefaultReplicator::<DockedState>::new(ComponentKind(14))),
     });
 
-    // 1024: MiningBeam (Game)
+    // 1024: ExtractionBeam (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::MINING_BEAM_KIND,
-        name: "MiningBeam",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::EXTRACTION_BEAM_KIND,
+        name: "ExtractionBeam",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<MiningBeam>::new(
-            aetheris_protocol::types::MINING_BEAM_KIND,
+        replicator: Arc::new(DefaultReplicator::<ExtractionBeam>::new(
+            aetheris_protocol::types::EXTRACTION_BEAM_KIND,
         )),
     });
 
-    // 1025: CargoHold (Game)
+    // 1025: DataStore (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::CARGO_HOLD_KIND,
-        name: "CargoHold",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::DATA_STORE_KIND,
+        name: "DataStore",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<CargoHold>::new(
-            aetheris_protocol::types::CARGO_HOLD_KIND,
+        replicator: Arc::new(DefaultReplicator::<DataStore>::new(
+            aetheris_protocol::types::DATA_STORE_KIND,
         )),
     });
 
-    // 1026: Asteroid (Game)
+    // 1026: Resource (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::ASTEROID_KIND,
-        name: "Asteroid",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::RESOURCE_KIND,
+        name: "Resource",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<Asteroid>::new(
-            aetheris_protocol::types::ASTEROID_KIND,
+        replicator: Arc::new(DefaultReplicator::<Resource>::new(
+            aetheris_protocol::types::RESOURCE_KIND,
         )),
     });
 
-    // 1027: WeaponComponent (Game)
+    // 1027: ToolComponent (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::WEAPON_KIND,
-        name: "WeaponComponent",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::TOOL_KIND,
+        name: "ToolComponent",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<WeaponComponent>::new(
-            aetheris_protocol::types::WEAPON_KIND,
+        replicator: Arc::new(DefaultReplicator::<ToolComponent>::new(
+            aetheris_protocol::types::TOOL_KIND,
         )),
     });
 
-    // 1028: ShieldPoolComponent (Game)
+    // 1028: PriorityPoolComponent (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::SHIELD_POOL_KIND,
-        name: "ShieldPoolComponent",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::PRIORITY_POOL_KIND,
+        name: "PriorityPoolComponent",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<ShieldPoolComponent>::new(
-            aetheris_protocol::types::SHIELD_POOL_KIND,
+        replicator: Arc::new(DefaultReplicator::<PriorityPoolComponent>::new(
+            aetheris_protocol::types::PRIORITY_POOL_KIND,
         )),
     });
 
-    // 1029: HullPoolComponent (Game)
+    // 1029: IntegrityPoolComponent (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::HULL_POOL_KIND,
-        name: "HullPoolComponent",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::INTEGRITY_POOL_KIND,
+        name: "IntegrityPoolComponent",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<HullPoolComponent>::new(
-            aetheris_protocol::types::HULL_POOL_KIND,
+        replicator: Arc::new(DefaultReplicator::<IntegrityPoolComponent>::new(
+            aetheris_protocol::types::INTEGRITY_POOL_KIND,
         )),
     });
 
-    // 1030: CargoDropComponent (Game)
+    // 1030: DataDropComponent (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::CARGO_DROP_KIND,
-        name: "CargoDropComponent",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::DATA_DROP_KIND,
+        name: "DataDropComponent",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<CargoDropComponent>::new(
-            aetheris_protocol::types::CARGO_DROP_KIND,
+        replicator: Arc::new(DefaultReplicator::<DataDropComponent>::new(
+            aetheris_protocol::types::DATA_DROP_KIND,
         )),
     });
 
-    // 129: RoomDefinition (Game)
+    // 129: WorkspaceDefinition (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::ROOM_DEFINITION_KIND,
-        name: "RoomDefinition",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::WORKSPACE_DEFINITION_KIND,
+        name: "WorkspaceDefinition",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<RoomDefinitionComponent>::new(
-            aetheris_protocol::types::ROOM_DEFINITION_KIND,
+        replicator: Arc::new(DefaultReplicator::<WorkspaceDefinitionComponent>::new(
+            aetheris_protocol::types::WORKSPACE_DEFINITION_KIND,
         )),
     });
 
-    // 130: RoomBounds (Game)
+    // 130: WorkspaceBounds (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::ROOM_BOUNDS_KIND,
-        name: "RoomBounds",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::WORKSPACE_BOUNDS_KIND,
+        name: "WorkspaceBounds",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<RoomBoundsComponent>::new(
-            aetheris_protocol::types::ROOM_BOUNDS_KIND,
+        replicator: Arc::new(DefaultReplicator::<WorkspaceBoundsComponent>::new(
+            aetheris_protocol::types::WORKSPACE_BOUNDS_KIND,
         )),
     });
 
-    // 131: RoomMembership (Game)
+    // 131: WorkspaceMembership (Platform)
     registry.register(ComponentDescriptor {
-        kind: aetheris_protocol::types::ROOM_MEMBERSHIP_KIND,
-        name: "RoomMembership",
-        scope: ComponentScope::Game,
+        kind: aetheris_protocol::types::WORKSPACE_MEMBERSHIP_KIND,
+        name: "WorkspaceMembership",
+        scope: ComponentScope::Platform,
         classification: ComponentClassification::Simulated,
-        replicator: Arc::new(DefaultReplicator::<RoomMembershipComponent>::new(
-            aetheris_protocol::types::ROOM_MEMBERSHIP_KIND,
+        replicator: Arc::new(DefaultReplicator::<WorkspaceMembershipComponent>::new(
+            aetheris_protocol::types::WORKSPACE_MEMBERSHIP_KIND,
         )),
     });
 
@@ -618,9 +633,9 @@ mod tests {
     #[test]
     fn test_void_rush_registry_completeness() {
         let mut registry = ComponentRegistry::new();
-        register_void_rush_components(&mut registry);
+        register_platform_components(&mut registry);
 
-        // Verify we have 25 components (14 replicated core + 3 mining + 3 room + 4 combat + 1 transient input)
+        // Verify we have 25 components (14 replicated core + 3 platform + 3 workspace + 4 platform + 1 transient input)
         assert_eq!(
             registry.components.len(),
             25,
@@ -636,21 +651,21 @@ mod tests {
             );
         }
 
-        // Verify Mining IDs are present
+        // Verify Platform IDs are present
         assert!(
             registry
                 .components
-                .contains_key(&aetheris_protocol::types::MINING_BEAM_KIND)
+                .contains_key(&aetheris_protocol::types::EXTRACTION_BEAM_KIND)
         );
         assert!(
             registry
                 .components
-                .contains_key(&aetheris_protocol::types::CARGO_HOLD_KIND)
+                .contains_key(&aetheris_protocol::types::DATA_STORE_KIND)
         );
         assert!(
             registry
                 .components
-                .contains_key(&aetheris_protocol::types::ASTEROID_KIND)
+                .contains_key(&aetheris_protocol::types::RESOURCE_KIND)
         );
 
         // Verify InputCommand (128) is present
@@ -665,7 +680,7 @@ mod tests {
     #[test]
     fn test_bijectivity() {
         let mut registry = ComponentRegistry::new();
-        register_void_rush_components(&mut registry);
+        register_platform_components(&mut registry);
 
         let mut names = std::collections::HashSet::new();
         for desc in registry.components.values() {
@@ -688,7 +703,7 @@ mod tests {
 
         let mut world = World::new();
         let entity = world
-            .spawn((NetworkOwner(ClientId(1)), crate::components::SessionShip))
+            .spawn((NetworkOwner(ClientId(1)), crate::components::SessionAgent))
             .id();
         let replicator = InputCommandReplicator;
 
@@ -783,7 +798,7 @@ mod tests {
 
         let mut world = World::new();
         let entity = world
-            .spawn((NetworkOwner(ClientId(1)), crate::components::SessionShip))
+            .spawn((NetworkOwner(ClientId(1)), crate::components::SessionAgent))
             .id();
         let replicator = InputCommandReplicator;
 
@@ -902,13 +917,13 @@ mod tests {
 
     #[test]
     fn test_input_replicator_malformed_payload() {
-        use crate::components::{LatestInput, NetworkOwner, SessionShip};
+        use crate::components::{LatestInput, NetworkOwner, SessionAgent};
         use aetheris_protocol::events::ComponentUpdate;
         use aetheris_protocol::types::{ClientId, ComponentKind, NetworkId};
 
         let mut world = World::new();
         // SessionShip marker required: InputCommandReplicator gates on its presence
-        let entity = world.spawn((NetworkOwner(ClientId(1)), SessionShip)).id();
+        let entity = world.spawn((NetworkOwner(ClientId(1)), SessionAgent)).id();
         let replicator = InputCommandReplicator;
 
         replicator.apply(

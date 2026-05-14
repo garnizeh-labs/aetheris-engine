@@ -1,6 +1,6 @@
 use aetheris_ecs_bevy::BevyWorldAdapter;
 use aetheris_ecs_bevy::components::TransformComponent;
-use aetheris_ecs_bevy::registry::register_void_rush_components;
+use aetheris_ecs_bevy::registry::register_platform_components;
 use aetheris_protocol::traits::WorldState;
 use alloc_counter::count_alloc;
 use bevy_ecs::prelude::World;
@@ -12,7 +12,7 @@ fn bench_ecs_extract_dirty(c: &mut Criterion) {
     let world = World::new();
     let mut adapter = BevyWorldAdapter::new(world, 60);
     let mut registry = aetheris_ecs_bevy::registry::ComponentRegistry::new();
-    register_void_rush_components(&mut registry);
+    register_platform_components(&mut registry);
     for descriptor in registry.components.values() {
         adapter.register_replicator(descriptor.replicator.clone());
     }
