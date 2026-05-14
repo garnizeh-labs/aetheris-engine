@@ -1,7 +1,7 @@
 use aetheris_ecs_bevy::BevyWorldAdapter;
 use aetheris_ecs_bevy::components::*;
 use aetheris_protocol::traits::WorldState;
-use aetheris_protocol::types::{ACTION_FIRE_WEAPON, InputCommand};
+use aetheris_protocol::types::{ACTION_USE_TOOL, InputCommand};
 use bevy_ecs::prelude::World;
 
 #[test]
@@ -14,7 +14,7 @@ fn test_weapon_cooldown_enforcement() {
         let entity = adapter.get_local_id(nid).unwrap();
         let world = adapter.world_mut();
         let mut weapon = world
-            .get_mut::<WeaponComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
+            .get_mut::<ToolComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
             .unwrap();
         weapon.0.cooldown_ticks = 10;
         weapon.0.last_fired_tick = 0;
@@ -35,7 +35,7 @@ fn test_weapon_cooldown_enforcement() {
                 command: InputCommand {
                     tick: 11,
                     actions: vec![],
-                    actions_mask: ACTION_FIRE_WEAPON,
+                    actions_mask: ACTION_USE_TOOL,
                     last_seen_input_tick: None,
                 },
                 last_client_tick: 11,
@@ -47,7 +47,7 @@ fn test_weapon_cooldown_enforcement() {
         let entity = adapter.get_local_id(nid).unwrap();
         let weapon = adapter
             .world()
-            .get::<WeaponComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
+            .get::<ToolComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
             .unwrap();
         assert_eq!(weapon.0.last_fired_tick, 11);
     }
@@ -65,7 +65,7 @@ fn test_weapon_cooldown_enforcement() {
                 command: InputCommand {
                     tick: 15,
                     actions: vec![],
-                    actions_mask: ACTION_FIRE_WEAPON,
+                    actions_mask: ACTION_USE_TOOL,
                     last_seen_input_tick: None,
                 },
                 last_client_tick: 15,
@@ -77,7 +77,7 @@ fn test_weapon_cooldown_enforcement() {
         let entity = adapter.get_local_id(nid).unwrap();
         let weapon = adapter
             .world()
-            .get::<WeaponComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
+            .get::<ToolComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
             .unwrap();
         assert_eq!(weapon.0.last_fired_tick, 11); // Still 11, didn't update
     }
@@ -95,7 +95,7 @@ fn test_weapon_cooldown_enforcement() {
                 command: InputCommand {
                     tick: 21,
                     actions: vec![],
-                    actions_mask: ACTION_FIRE_WEAPON,
+                    actions_mask: ACTION_USE_TOOL,
                     last_seen_input_tick: None,
                 },
                 last_client_tick: 21,
@@ -107,7 +107,7 @@ fn test_weapon_cooldown_enforcement() {
         let entity = adapter.get_local_id(nid).unwrap();
         let weapon = adapter
             .world()
-            .get::<WeaponComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
+            .get::<ToolComponent>(bevy_ecs::prelude::Entity::from_bits(entity.0))
             .unwrap();
         assert_eq!(weapon.0.last_fired_tick, 21);
     }
@@ -134,7 +134,7 @@ fn test_hitscan_range() {
                 command: InputCommand {
                     tick: 31,
                     actions: vec![],
-                    actions_mask: ACTION_FIRE_WEAPON,
+                    actions_mask: ACTION_USE_TOOL,
                     last_seen_input_tick: None,
                 },
                 last_client_tick: 31,
@@ -146,7 +146,7 @@ fn test_hitscan_range() {
     let dummy_entity = adapter.get_local_id(dummy_nid).unwrap();
     let shield = adapter
         .world()
-        .get::<ShieldPoolComponent>(bevy_ecs::prelude::Entity::from_bits(dummy_entity.0))
+        .get::<PriorityPoolComponent>(bevy_ecs::prelude::Entity::from_bits(dummy_entity.0))
         .unwrap();
     assert_eq!(shield.0.current, 50);
 
@@ -159,7 +159,7 @@ fn test_hitscan_range() {
         t.0.x = 1.0;
         // Disable regen for test predictability
         let mut timer = world
-            .get_mut::<ShieldRegenTimer>(bevy_ecs::prelude::Entity::from_bits(dummy_entity.0))
+            .get_mut::<PriorityRegenTimer>(bevy_ecs::prelude::Entity::from_bits(dummy_entity.0))
             .unwrap();
         timer.ticks_until_regen = 1000;
     }
@@ -178,7 +178,7 @@ fn test_hitscan_range() {
                 command: InputCommand {
                     tick,
                     actions: vec![],
-                    actions_mask: ACTION_FIRE_WEAPON,
+                    actions_mask: ACTION_USE_TOOL,
                     last_seen_input_tick: None,
                 },
                 last_client_tick: tick,
@@ -204,7 +204,7 @@ fn test_hitscan_range() {
     // Verify damage (Dummy has 50 shield. 25 damage should hit shield -> 25)
     let shield = adapter
         .world()
-        .get::<ShieldPoolComponent>(bevy_ecs::prelude::Entity::from_bits(dummy_entity.0))
+        .get::<PriorityPoolComponent>(bevy_ecs::prelude::Entity::from_bits(dummy_entity.0))
         .unwrap();
     assert_eq!(shield.0.current, 0);
 }
@@ -220,9 +220,11 @@ fn test_shield_hull_overflow() {
     // Set dummy to low shield (10) and high regen delay to prevent regen during test
     {
         let world = adapter.world_mut();
-        let mut shield = world.get_mut::<ShieldPoolComponent>(dummy_entity).unwrap();
+        let mut shield = world
+            .get_mut::<PriorityPoolComponent>(dummy_entity)
+            .unwrap();
         shield.0.current = 10;
-        let mut timer = world.get_mut::<ShieldRegenTimer>(dummy_entity).unwrap();
+        let mut timer = world.get_mut::<PriorityRegenTimer>(dummy_entity).unwrap();
         timer.ticks_until_regen = 1000;
     }
 
@@ -242,7 +244,7 @@ fn test_shield_hull_overflow() {
                 command: InputCommand {
                     tick,
                     actions: vec![],
-                    actions_mask: ACTION_FIRE_WEAPON,
+                    actions_mask: ACTION_USE_TOOL,
                     last_seen_input_tick: None,
                 },
                 last_client_tick: tick,
@@ -266,11 +268,11 @@ fn test_shield_hull_overflow() {
     // Shield should be 0, Hull should be 100 - (25 - 10) = 85
     let shield = adapter
         .world()
-        .get::<ShieldPoolComponent>(dummy_entity)
+        .get::<PriorityPoolComponent>(dummy_entity)
         .unwrap();
     let hull = adapter
         .world()
-        .get::<HullPoolComponent>(dummy_entity)
+        .get::<IntegrityPoolComponent>(dummy_entity)
         .unwrap();
     assert_eq!(shield.0.current, 0);
     assert_eq!(hull.0.current, 85);

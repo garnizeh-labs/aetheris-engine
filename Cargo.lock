@@ -35,15 +35,15 @@ version = "0.11.0"
 
 [[package]]
 name = "aetheris-encoder-bitpack"
-version = "0.2.22"
+version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f818a0dedd42bca834ebbe84a11908ea3edc815ee4dffccb7d267d14c612ac4"
+checksum = "448e7c2ab2e22753ddb8aa1d73e049dc9cd9da78a93954a87e4de5c452c1eb46"
 
 [[package]]
 name = "aetheris-encoder-serde"
-version = "0.2.22"
+version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0cb690d1f56a35887264bb732b1a07e8a067ab07a8a6115112abf63d1fad163"
+checksum = "59ae0130976408ac66d10d3bf5d8cbf4ed4aca666b88e40928d6dae54532b9c6"
 dependencies = [
  "aetheris-protocol",
  "metrics",
@@ -54,9 +54,9 @@ dependencies = [
 
 [[package]]
 name = "aetheris-protocol"
-version = "0.2.22"
+version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e0b6ee7884d74691ba396b3d6494f154425d01f387b377878b1647fd7144b1c"
+checksum = "3eff0e60c8b5f01e87c2154ef19e1ae5f85a22a11c86c2eb7a5dfa5226b711ed"
 dependencies = [
  "async-trait",
  "prost",
@@ -2155,15 +2155,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2252,9 +2243,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lettre"
-version = "0.11.21"
+version = "0.11.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dabda5859ee7c06b995b9d1165aa52c39110e079ef609db97178d86aeb051fa7"
+checksum = "0da65617f6cb926332d039cb578aad56178da86e128db6a1b09f4c94fa5b3349"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2978,7 +2969,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "petgraph",
@@ -2999,7 +2990,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3539,9 +3530,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.39"
+version = "0.23.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c2c118cb077cca2822033836dfb1b975355dfb784b5e8da48f7b6c5db74e60e"
+checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
 dependencies = [
  "aws-lc-rs",
  "log",

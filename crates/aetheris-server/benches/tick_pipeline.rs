@@ -3,7 +3,7 @@ extern crate rmp_serde;
 
 use aetheris_protocol::error::{EncodeError, TransportError};
 use aetheris_protocol::events::{NetworkEvent, ReplicationEvent};
-use aetheris_protocol::traits::{Encoder, GameTransport, WorldState};
+use aetheris_protocol::traits::{Encoder, PlatformTransport, WorldState};
 use aetheris_protocol::types::{ClientId, ComponentKind, NetworkId};
 use aetheris_server::tick::TickScheduler;
 use async_trait::async_trait;
@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 #[derive(Debug)]
 struct NoOpTransport;
 #[async_trait]
-impl GameTransport for NoOpTransport {
+impl PlatformTransport for NoOpTransport {
     async fn send_unreliable(&self, _: ClientId, _: &[u8]) -> Result<(), TransportError> {
         Ok(())
     }
@@ -29,6 +29,9 @@ impl GameTransport for NoOpTransport {
     }
     async fn poll_events(&mut self) -> Result<Vec<NetworkEvent>, TransportError> {
         Ok(vec![])
+    }
+    async fn disconnect(&self, _: ClientId) -> Result<(), TransportError> {
+        Ok(())
     }
     async fn connected_client_count(&self) -> usize {
         0
@@ -128,7 +131,7 @@ fn bench_tick_scheduler(c: &mut Criterion) {
     );
 
     let transport = Arc::new(RwLock::new(
-        Box::new(NoOpTransport) as Box<dyn GameTransport>
+        Box::new(NoOpTransport) as Box<dyn PlatformTransport>
     ));
     let encoder = Arc::new(NoOpEncoder);
 

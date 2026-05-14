@@ -7,21 +7,24 @@ use aetheris_protocol::error::WorldError;
 use aetheris_protocol::events::ComponentUpdate;
 use aetheris_protocol::traits::WorldState;
 use aetheris_protocol::types::{
-    ClientId, ComponentKind, ENTITY_TYPE_AI_INTERCEPTOR, ENTITY_TYPE_ASTEROID,
-    ENTITY_TYPE_CARGO_DROP, ENTITY_TYPE_DREADNOUGHT, ENTITY_TYPE_HAULER, ENTITY_TYPE_INTERCEPTOR,
-    ENTITY_TYPE_PROJECTILE, ENTITY_TYPE_TRAINING_DUMMY, LocalId, NetworkId, NetworkIdAllocator,
-    ShipClass, ShipStats, get_default_stats,
+    AgentKind, AgentProperties, ClientId, ComponentKind, ENTITY_TYPE_AGENT, ENTITY_TYPE_AI_AGENT,
+    ENTITY_TYPE_BEAM, ENTITY_TYPE_CARRIER_AGENT, ENTITY_TYPE_DATA_DROP, ENTITY_TYPE_HEAVY_AGENT,
+    ENTITY_TYPE_RESOURCE, ENTITY_TYPE_TRAINING_TARGET, LocalId, NetworkId, NetworkIdAllocator,
+    get_default_properties,
 };
 
 use crate::Networked;
 use crate::components::{
-    AiControlled, HullPoolComponent, LatestInput, PhysicsBody, RoomBoundsComponent,
-    RoomDefinitionComponent, RoomMembershipComponent, ShieldPoolComponent, ShipClassComponent,
-    ShipStatsComponent, TrainingDummy, TransformComponent, Velocity, WeaponComponent,
+    AgentKindComponent, AgentPropertiesComponent, AiControlled, IntegrityPoolComponent,
+    LatestInput, PhysicsBody, PriorityPoolComponent, ToolComponent, TrainingTarget,
+    TransformComponent, Velocity, WorkspaceBoundsComponent, WorkspaceDefinitionComponent,
+    WorkspaceMembershipComponent,
 };
-use crate::physics_consts::MASS_PER_ORE;
+use crate::physics_consts::MASS_PER_PAYLOAD;
 use crate::registry::BoxedReplicator;
 use aetheris_protocol::types::Transform as ProtocolTransform;
+
+type PostSimulateHook = Box<dyn Fn(&mut World) + Send + Sync>;
 
 /// Adapts a Bevy ECS World to the `WorldState` trait.
 pub struct BevyWorldAdapter {
@@ -33,6 +36,7 @@ pub struct BevyWorldAdapter {
     last_extraction_tick: Option<Tick>,
     tick_rate: u64,
     rng: crate::deterministic_rng::DeterministicRng,
+    post_simulate_hook: Option<PostSimulateHook>,
 }
 
 impl Default for BevyWorldAdapter {
@@ -58,6 +62,7 @@ impl BevyWorldAdapter {
             last_extraction_tick: None,
             tick_rate,
             rng: crate::deterministic_rng::DeterministicRng::default(),
+            post_simulate_hook: None,
         };
         adapter
             .world
@@ -67,10 +72,10 @@ impl BevyWorldAdapter {
             .insert_resource(crate::components::ReliableEvents::default());
         adapter
             .world
-            .insert_resource(crate::combat::ProjectileSpawnRequests::default());
+            .insert_resource(crate::interaction::BeamSpawnRequests::default());
         adapter
             .world
-            .insert_resource(crate::components::RoomIndex::default());
+            .insert_resource(crate::components::WorkspaceIndex::default());
         adapter.world.insert_resource(adapter.rng.clone());
         adapter
     }
@@ -90,6 +95,7 @@ impl BevyWorldAdapter {
             last_extraction_tick: None,
             tick_rate,
             rng,
+            post_simulate_hook: None,
         };
         adapter
             .world
@@ -99,7 +105,7 @@ impl BevyWorldAdapter {
             .insert_resource(crate::components::ReliableEvents::default());
         adapter
             .world
-            .insert_resource(crate::components::RoomIndex::default());
+            .insert_resource(crate::components::WorkspaceIndex::default());
         adapter.world.insert_resource(adapter.rng.clone());
         adapter
     }
@@ -107,6 +113,11 @@ impl BevyWorldAdapter {
     /// Registers a component replicator for a specific `ComponentKind`.
     pub fn register_replicator(&mut self, replicator: BoxedReplicator) {
         self.replicators.insert(replicator.kind(), replicator);
+    }
+
+    /// Sets a hook to be run after the simulation step.
+    pub fn set_post_simulate_hook(&mut self, hook: impl Fn(&mut World) + Send + Sync + 'static) {
+        self.post_simulate_hook = Some(Box::new(hook));
     }
 
     /// Access the underlying Bevy world.
@@ -134,11 +145,15 @@ impl WorldState for BevyWorldAdapter {
 
     fn extract_deltas(&mut self) -> Vec<aetheris_protocol::events::ReplicationEvent> {
         let mut deltas = Vec::new();
+        // M1038: Use authoritative ServerTick resource instead of Bevy's internal change_tick.
+        // This ensures the tick window in InputCommandReplicator matches outgoing component ticks.
+        let tick = self
+            .world
+            .get_resource::<crate::components::ServerTick>()
+            .map_or(0, |t| t.0);
         let current_tick = self.world.change_tick();
-        // Bevy's change tick is internally a u32, but our protocol uses u64
-        let tick = u64::from(current_tick.get());
 
-        // Extract using RoomIndex? We only need to optimize the extraction logic when
+        // Extract using WorkspaceIndex? We only need to optimize the extraction logic when
         // deciding WHAT to send to WHICH client. BUT `extract_deltas` currently extracts
         // for ALL entities and then the transport broadcasts.
         // Wait, the delta payload is broadcasted globally. To implement per-client filtering
@@ -180,12 +195,7 @@ impl WorldState for BevyWorldAdapter {
             .world
             .get_resource_mut::<crate::components::ReliableEvents>()
         {
-            for (client_id, game_event) in reliable.queue.drain(..) {
-                events.push((
-                    client_id,
-                    aetheris_protocol::events::WireEvent::GameEvent(game_event),
-                ));
-            }
+            events.append(&mut reliable.queue);
         }
         events
     }
@@ -297,9 +307,9 @@ impl WorldState for BevyWorldAdapter {
             .world
             .get_resource::<crate::components::ServerTick>()
             .map_or(0, |t| t.0);
-        let log_this_tick = server_tick.is_multiple_of(60);
+        let log_this_tick = server_tick.is_multiple_of(600);
 
-        if log_this_tick {
+        if log_this_tick && server_tick > 0 {
             let total = self.world.entities().len();
             let mut entities_info = Vec::new();
             let mut query = self.world.query::<Entity>();
@@ -310,17 +320,17 @@ impl WorldState for BevyWorldAdapter {
                 }
                 if self
                     .world
-                    .get::<crate::components::ProjectileMarker>(entity)
+                    .get::<crate::components::BeamMarker>(entity)
                     .is_some()
                 {
-                    components.push("Projectile");
+                    components.push("Beam");
                 }
                 if self
                     .world
-                    .get::<crate::components::HullPoolComponent>(entity)
+                    .get::<crate::components::IntegrityPoolComponent>(entity)
                     .is_some()
                 {
-                    components.push("Hull");
+                    components.push("Integrity");
                 }
                 if self
                     .world
@@ -336,7 +346,7 @@ impl WorldState for BevyWorldAdapter {
                 let nid = self.bimap.get_by_right(&entity).copied();
                 entities_info.push(format!("{entity:?}(nid:{nid:?}) -> {components:?}"));
             }
-            tracing::warn!(
+            tracing::debug!(
                 server_tick,
                 total,
                 ?entities_info,
@@ -349,17 +359,17 @@ impl WorldState for BevyWorldAdapter {
             &mut TransformComponent,
             &PhysicsBody,
             Option<&LatestInput>,
-            Option<&crate::components::CargoHold>,
-            &crate::Networked, // M1013 inclusion for diagnostics
+            Option<&crate::components::DataStore>,
+            &crate::Networked,
         )>();
 
         for (mut velocity, mut transform, physics, input, cargo, networked) in
             query.iter_mut(&mut self.world)
         {
             let network_id = networked.0;
-            // 1.1 Calculate total mass with cargo penalty (M1038)
-            let ore_count = cargo.map_or(0.0, |c| f32::from(c.ore_count));
-            let total_mass = physics.base_mass + (ore_count * physics.mass_per_ore);
+            // 1.1 Calculate total mass with payload penalty
+            let payload_count = cargo.map_or(0.0, |c| f32::from(c.payload_count));
+            let total_mass = physics.base_mass + (payload_count * physics.mass_per_payload);
 
             // 1.2 Process Inputs
             let mut move_x = 0.0f32;
@@ -459,25 +469,24 @@ impl WorldState for BevyWorldAdapter {
             }
         }
 
-        // Room Bounds Enforcement (Stage 3 Simulate)
+        // Workspace Bounds Enforcement (Stage 3 Simulate)
         let mut bounds_query = self
             .world
-            .query::<(bevy_ecs::prelude::Entity, &RoomBoundsComponent)>();
-        let mut rooms = Vec::new();
+            .query::<(bevy_ecs::prelude::Entity, &WorkspaceBoundsComponent)>();
+        let mut workspaces = Vec::new();
         for (e, bounds) in bounds_query.iter(&self.world) {
             if let Some(&nid) = self.bimap.get_by_right(&e) {
-                rooms.push((nid, bounds.0));
+                workspaces.push((nid, bounds.0));
             }
         }
 
-        let mut avatar_query = self
+        let mut agent_query = self
             .world
-            .query::<(&mut TransformComponent, &RoomMembershipComponent)>();
-        for (mut transform, membership) in avatar_query.iter_mut(&mut self.world) {
-            let room_id = membership.0.0;
-            if let Some((_, bounds)) = rooms.iter().find(|(nid, _)| *nid == room_id) {
-                // Toroidal wrapping (M1020 - Infinite Playground)
-                // Use rem_euclid to handle negative coordinates correctly.
+            .query::<(&mut TransformComponent, &WorkspaceMembershipComponent)>();
+        for (mut transform, membership) in agent_query.iter_mut(&mut self.world) {
+            let workspace_id = membership.0.0;
+            if let Some((_, bounds)) = workspaces.iter().find(|(nid, _)| *nid == workspace_id) {
+                // Toroidal wrapping
                 let width = bounds.max_x - bounds.min_x;
                 let height = bounds.max_y - bounds.min_y;
 
@@ -492,15 +501,15 @@ impl WorldState for BevyWorldAdapter {
             }
         }
 
-        // Stage 1.8: Process Targeted Actions (Mining)
-        let mut input_query = self
-            .world
-            .query::<(Entity, &LatestInput, &mut crate::components::MiningBeam)>();
+        // Stage 1.8: Process Targeted Actions (Extraction)
+        let mut input_query =
+            self.world
+                .query::<(Entity, &LatestInput, &mut crate::components::ExtractionBeam)>();
         for (_entity, latest, mut beam) in input_query.iter_mut(&mut self.world) {
             // Edge-detect: Only process actions if the client tick has changed.
             if beam.last_seen_input_tick != Some(latest.command.tick) {
                 for action in &latest.command.actions {
-                    if let aetheris_protocol::types::PlayerInputKind::ToggleMining { target } =
+                    if let aetheris_protocol::types::PlayerInputKind::ToggleExtraction { target } =
                         action
                     {
                         beam.active = !beam.active;
@@ -512,50 +521,58 @@ impl WorldState for BevyWorldAdapter {
             }
         }
 
-        // Stage 2: Gameplay Systems (M1038)
-        let depleted = crate::mining::process_mining(&mut self.world, &self.bimap);
+        // Stage 2: Gameplay Systems
+        let exhausted = crate::extraction::process_extraction(&mut self.world, &self.bimap);
         let mut reliable_events = Vec::new();
-        for entity in depleted {
+        for entity in exhausted {
             if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
                 reliable_events.push((
                     None,
-                    aetheris_protocol::events::GameEvent::AsteroidDepleted { network_id },
+                    aetheris_protocol::events::WireEvent::PlatformEvent(
+                        aetheris_protocol::events::PlatformEvent::ResourceExhausted { network_id },
+                    ),
                 ));
                 let _ = self.despawn_networked(network_id);
             }
         }
 
-        // VS-03 Combat Loop
-        let _ = crate::combat::process_combat(&mut self.world, &self.bimap);
+        // Interaction Loop
+        let _ = crate::interaction::process_interaction(&mut self.world, &self.bimap);
 
-        let collected = crate::mining::process_cargo_collection(&mut self.world, &self.bimap);
+        let collected = crate::extraction::process_payload_collection(&mut self.world, &self.bimap);
         for entity in collected {
             if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
                 reliable_events.push((
                     None,
-                    aetheris_protocol::events::GameEvent::CargoCollected {
-                        network_id,
-                        amount: 0,
-                    },
+                    aetheris_protocol::events::WireEvent::PlatformEvent(
+                        aetheris_protocol::events::PlatformEvent::PayloadCollected {
+                            network_id,
+                            amount: 0,
+                        },
+                    ),
                 ));
                 let _ = self.despawn_networked(network_id);
             }
         }
 
-        let (p_to_despawn, p_deaths) =
-            crate::combat::process_projectiles(&mut self.world, &self.bimap);
+        let (b_to_despawn, b_terminations) =
+            crate::interaction::process_beams(&mut self.world, &self.bimap);
 
-        // Handle projectile deaths (similar to combat_dead)
-        for entity in p_deaths {
+        // Handle terminations
+        for entity in b_terminations {
             if let Some(network_id) = self.bimap.get_by_right(&entity).copied() {
                 reliable_events.push((
                     None,
-                    aetheris_protocol::events::GameEvent::DeathEvent { target: network_id },
+                    aetheris_protocol::events::WireEvent::PlatformEvent(
+                        aetheris_protocol::events::PlatformEvent::Termination {
+                            target: network_id,
+                        },
+                    ),
                 ));
-                // Drop cargo
-                if let Some(cargo) = self.world.get::<crate::components::CargoHold>(entity) {
-                    let quantity = cargo.ore_count;
-                    if quantity > 0 {
+                // Drop payload
+                if let Some(store) = self.world.get::<crate::components::DataStore>(entity) {
+                    let amount = store.payload_count;
+                    if amount > 0 {
                         let pos = self.world.get::<TransformComponent>(entity).map_or(
                             ProtocolTransform {
                                 x: 0.0,
@@ -566,27 +583,27 @@ impl WorldState for BevyWorldAdapter {
                             },
                             |t| t.0,
                         );
-                        let drop_id = self.spawn_kind(ENTITY_TYPE_CARGO_DROP, pos.x, pos.y, 0.0);
+                        let drop_id = self.spawn_kind(ENTITY_TYPE_DATA_DROP, pos.x, pos.y, 0.0);
                         if let Some(drop_entity) = self.bimap.get_by_left(&drop_id)
                             && let Some(mut drop_comp) =
                                 self.world
-                                    .get_mut::<crate::components::CargoDropComponent>(*drop_entity)
+                                    .get_mut::<crate::components::DataDropComponent>(*drop_entity)
                         {
-                            drop_comp.0.quantity = quantity;
+                            drop_comp.0.amount = amount;
                         }
                     }
                 }
 
-                // If training dummy, spawn respawn tracker
+                // If training target, spawn reinitialization tracker
                 if self
                     .world
-                    .get::<crate::components::TrainingDummy>(entity)
+                    .get::<crate::components::TrainingTarget>(entity)
                     .is_some()
                 {
                     self.world.spawn((
-                        crate::components::TrainingDummy,
+                        crate::components::TrainingTarget,
                         crate::components::RespawnTimer {
-                            delay_ticks: 600, // 10s
+                            delay_ticks: 600,
                             location: aetheris_protocol::types::RespawnLocation::Coordinate(
                                 50.0, 50.0,
                             ),
@@ -598,16 +615,20 @@ impl WorldState for BevyWorldAdapter {
             }
         }
 
-        for entity in &p_to_despawn {
+        for entity in &b_to_despawn {
             if let Some(network_id) = self.bimap.get_by_right(entity).copied() {
-                tracing::info!(?network_id, "Despawning projectile (range/hit)");
+                tracing::info!(?network_id, "Despawning beam (range/hit)");
                 reliable_events.push((
                     None,
-                    aetheris_protocol::events::GameEvent::DeathEvent { target: network_id },
+                    aetheris_protocol::events::WireEvent::PlatformEvent(
+                        aetheris_protocol::events::PlatformEvent::Termination {
+                            target: network_id,
+                        },
+                    ),
                 ));
                 let _ = self.despawn_networked(network_id);
             } else if let Ok(e_mut) = self.world.get_entity_mut(*entity) {
-                tracing::info!(?entity, "Despawning projectile (local-only)");
+                tracing::info!(?entity, "Despawning beam (local-only)");
                 e_mut.despawn();
             }
         }
@@ -620,25 +641,25 @@ impl WorldState for BevyWorldAdapter {
             reliable.queue.extend(reliable_events);
         }
 
-        // Handle Projectile Spawn Requests
+        // Handle Beam Spawn Requests
         let mut spawns = Vec::new();
         if let Some(mut requests) = self
             .world
-            .get_resource_mut::<crate::combat::ProjectileSpawnRequests>()
+            .get_resource_mut::<crate::interaction::BeamSpawnRequests>()
         {
             spawns = std::mem::take(&mut requests.0);
         }
         for spawn in spawns {
             let rot = spawn.vel[1].atan2(spawn.vel[0]);
-            let pid = self.spawn_kind(ENTITY_TYPE_PROJECTILE, spawn.pos[0], spawn.pos[1], rot);
-            if let Some(p_entity) = self.bimap.get_by_left(&pid) {
+            let bid = self.spawn_kind(ENTITY_TYPE_BEAM, spawn.pos[0], spawn.pos[1], rot);
+            if let Some(b_entity) = self.bimap.get_by_left(&bid) {
                 if let Some(mut marker) = self
                     .world
-                    .get_mut::<crate::components::ProjectileMarker>(*p_entity)
+                    .get_mut::<crate::components::BeamMarker>(*b_entity)
                 {
                     marker.owner = spawn.owner;
                 }
-                if let Some(mut vel) = self.world.get_mut::<crate::components::Velocity>(*p_entity)
+                if let Some(mut vel) = self.world.get_mut::<crate::components::Velocity>(*b_entity)
                 {
                     vel.dx = spawn.vel[0];
                     vel.dy = spawn.vel[1];
@@ -646,22 +667,22 @@ impl WorldState for BevyWorldAdapter {
             }
         }
 
-        crate::combat::process_regen(&mut self.world);
+        crate::interaction::process_regen(&mut self.world);
 
-        let to_respawn_dummies = crate::combat::process_dummy_respawn(&mut self.world);
-        for (x, y) in to_respawn_dummies {
-            self.spawn_kind(ENTITY_TYPE_TRAINING_DUMMY, x, y, 0.0);
+        let to_reinit = crate::interaction::process_target_reinitialization(&mut self.world);
+        for (x, y) in to_reinit {
+            self.spawn_kind(ENTITY_TYPE_TRAINING_TARGET, x, y, 0.0);
         }
 
-        let to_respawn = crate::mining::process_respawn(&mut self.world);
+        let to_respawn = crate::extraction::process_respawn(&mut self.world);
         for (x, y, capacity) in to_respawn {
-            let nid = self.spawn_kind(ENTITY_TYPE_ASTEROID, x, y, 0.0);
+            let nid = self.spawn_kind(ENTITY_TYPE_RESOURCE, x, y, 0.0);
             if let Some(entity) = self.bimap.get_by_left(&nid)
-                && let Some(mut asteroid) =
-                    self.world.get_mut::<crate::components::Asteroid>(*entity)
+                && let Some(mut resource) =
+                    self.world.get_mut::<crate::components::Resource>(*entity)
             {
-                asteroid.total_capacity = capacity;
-                asteroid.ore_remaining = capacity;
+                resource.total_capacity = capacity;
+                resource.payload_remaining = capacity;
             }
         }
 
@@ -684,6 +705,11 @@ impl WorldState for BevyWorldAdapter {
         // NOTE: clear_trackers is intentionally NOT called here. It is called in
         // post_extract() (after extract_deltas) so that position/velocity changes
         // made during simulate() are still visible to the extraction pipeline.
+
+        // Run post-simulation hook if present
+        if let Some(hook) = self.post_simulate_hook.as_ref() {
+            hook(&mut self.world);
+        }
     }
 
     fn post_extract(&mut self) {
@@ -694,7 +720,7 @@ impl WorldState for BevyWorldAdapter {
     }
 
     fn state_hash(&self) -> u64 {
-        use crate::components::{ShipStatsComponent, TransformComponent};
+        use crate::components::{AgentPropertiesComponent, TransformComponent};
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -718,11 +744,11 @@ impl WorldState for BevyWorldAdapter {
                     t.0.entity_type.hash(&mut hasher);
                 }
 
-                // Hash ShipStats
-                if let Some(s) = self.world.get::<ShipStatsComponent>(entity) {
-                    s.0.hp.hash(&mut hasher);
-                    s.0.shield.hash(&mut hasher);
-                    s.0.energy.hash(&mut hasher);
+                // Hash AgentProperties
+                if let Some(p) = self.world.get::<AgentPropertiesComponent>(entity) {
+                    p.0.integrity.hash(&mut hasher);
+                    p.0.priority.hash(&mut hasher);
+                    p.0.energy.hash(&mut hasher);
                 }
             }
         }
@@ -767,10 +793,9 @@ impl WorldState for BevyWorldAdapter {
     fn despawn_networked(&mut self, network_id: NetworkId) -> Result<(), WorldError> {
         if let Some(entity) = self.bimap.remove_by_left(&network_id).map(|(_, e)| e) {
             self.owners.remove(&network_id);
-            // VS-06 — Clean up RoomIndex
-            let is_session_ship = self
+            let is_session_agent = self
                 .world
-                .get::<crate::components::SessionShip>(entity)
+                .get::<crate::components::SessionAgent>(entity)
                 .is_some();
             let owner_id = self
                 .world
@@ -779,20 +804,33 @@ impl WorldState for BevyWorldAdapter {
 
             if let Some(mut index) = self
                 .world
-                .get_resource_mut::<crate::components::RoomIndex>()
+                .get_resource_mut::<crate::components::WorkspaceIndex>()
             {
                 for memberships in index.memberships.values_mut() {
                     memberships.remove(&entity);
                 }
-                // If it was a session ship, remove the client's room assignment
-                if is_session_ship && let Some(cid) = owner_id {
-                    index.client_rooms.remove(&cid);
+                // If it was a session agent, remove the client's workspace assignment
+                if is_session_agent && let Some(cid) = owner_id {
+                    index.client_workspaces.remove(&cid);
                 }
             }
             if let Ok(entity_mut) = self.world.get_entity_mut(entity) {
                 entity_mut.despawn();
                 #[allow(clippy::cast_precision_loss)]
                 metrics::gauge!("aetheris_ecs_entities_networked").set(self.bimap.len() as f64);
+
+                // Queue reliable despawn event for replication
+                if let Some(mut reliable) = self
+                    .world
+                    .get_resource_mut::<crate::components::ReliableEvents>()
+                {
+                    tracing::info!(?network_id, "Queuing EntityDespawned event for replication");
+                    reliable.queue.push((
+                        None, // Broadcast to all
+                        aetheris_protocol::events::WireEvent::EntityDespawned { network_id },
+                    ));
+                }
+
                 Ok(())
             } else {
                 Err(WorldError::EntityNotFound(network_id))
@@ -807,11 +845,11 @@ impl WorldState for BevyWorldAdapter {
         tracing::info!(count, rotate, "Executing server-side stress test");
 
         let entity_types: [u16; 5] = [
-            ENTITY_TYPE_INTERCEPTOR,
-            ENTITY_TYPE_DREADNOUGHT,
-            ENTITY_TYPE_HAULER,
-            ENTITY_TYPE_ASTEROID,
-            ENTITY_TYPE_CARGO_DROP,
+            ENTITY_TYPE_AGENT,
+            ENTITY_TYPE_HEAVY_AGENT,
+            ENTITY_TYPE_CARRIER_AGENT,
+            ENTITY_TYPE_RESOURCE,
+            ENTITY_TYPE_DATA_DROP,
         ];
         for i in 0..count {
             let x = self.rng.inner_mut().random_range(-20.0..20.0);
@@ -835,13 +873,13 @@ impl WorldState for BevyWorldAdapter {
             .allocate()
             .expect("NetworkId allocation failed (exhausted)");
 
-        // We find the Playground_Master room id before spawning to avoid double borrow
+        // We find the Playground_Master workspace id before spawning to avoid double borrow
         let mut master_nid = NetworkId(1); // Usually 1 if spawned first.
         let mut found_master = false;
         {
             let mut query = self
                 .world
-                .query::<(bevy_ecs::prelude::Entity, &RoomDefinitionComponent)>();
+                .query::<(bevy_ecs::prelude::Entity, &WorkspaceDefinitionComponent)>();
             for (e, def) in query.iter(&self.world) {
                 if def.0.name.as_str() == "Playground_Master" {
                     if let Some(&nid) = self.bimap.get_by_right(&e) {
@@ -852,33 +890,35 @@ impl WorldState for BevyWorldAdapter {
                 }
             }
         }
-        // M10156 — Lazy room creation: if the master room doesn't exist yet, create it.
+        // M10156 — Lazy workspace creation: if the master workspace doesn't exist yet, create it.
         // This ensures the world can start with 0 entities but still function when needed.
         if !found_master {
-            let room_nid = self.spawn_networked();
-            if let Some(&entity) = self.bimap.get_by_left(&room_nid) {
+            let workspace_nid = self.spawn_networked();
+            if let Some(&entity) = self.bimap.get_by_left(&workspace_nid) {
                 self.world.entity_mut(entity).insert((
-                    RoomDefinitionComponent(aetheris_protocol::types::RoomDefinition {
-                        name: aetheris_protocol::types::RoomName::new("Playground_Master")
-                            .expect("static room name fits within MAX_ROOM_STRING_BYTES"),
+                    WorkspaceDefinitionComponent(aetheris_protocol::types::WorkspaceDefinition {
+                        name: aetheris_protocol::types::WorkspaceName::new("Playground_Master")
+                            .expect("static workspace name fits within MAX_WORKSPACE_STRING_BYTES"),
                         capacity: 0, // unlimited
-                        access: aetheris_protocol::types::RoomAccessPolicy::Open,
+                        access: aetheris_protocol::types::WorkspaceAccessPolicy::Open,
                         is_template: false,
                     }),
-                    RoomBoundsComponent(aetheris_protocol::types::RoomBounds {
+                    WorkspaceBoundsComponent(aetheris_protocol::types::WorkspaceBounds {
                         min_x: -250.0,
                         min_y: -250.0,
                         max_x: 250.0,
                         max_y: 250.0,
                     }),
-                    RoomMembershipComponent(aetheris_protocol::types::RoomMembership(room_nid)),
+                    WorkspaceMembershipComponent(aetheris_protocol::types::WorkspaceMembership(
+                        workspace_nid,
+                    )),
                 ));
-                master_nid = room_nid;
-                tracing::info!(?master_nid, "Playground_Master room created lazily");
+                master_nid = workspace_nid;
+                tracing::info!(?master_nid, "Playground_Master workspace created lazily");
 
-                // VS-02 refinement: spawn a single authoritative asteroid at (30, 0)
-                // when the master room is first created.
-                self.spawn_kind(ENTITY_TYPE_ASTEROID, 30.0, 0.0, 0.0);
+                // VS-02 refinement: spawn a single authoritative resource at (30, 0)
+                // when the master workspace is first created.
+                self.spawn_kind(ENTITY_TYPE_RESOURCE, 30.0, 0.0, 0.0);
             }
         }
 
@@ -900,19 +940,19 @@ impl WorldState for BevyWorldAdapter {
 
         // Map entity kind to components (M1020 §3.2)
         match kind {
-            ENTITY_TYPE_INTERCEPTOR | ENTITY_TYPE_AI_INTERCEPTOR => {
-                // Interceptor (GDD §4.2 / M1020 §3.1)
-                let (hp, shield) = get_default_stats(kind);
+            ENTITY_TYPE_AGENT | ENTITY_TYPE_AI_AGENT => {
+                // Agent (GDD §4.2 / M1020 §3.1)
+                let (hp, priority) = get_default_properties(kind);
                 entity_mut.insert((
-                    ShipClassComponent(ShipClass::Interceptor),
-                    ShipStatsComponent(ShipStats {
-                        hp,
-                        max_hp: hp,
-                        shield,
-                        max_shield: shield,
+                    AgentKindComponent(AgentKind::Standard),
+                    AgentPropertiesComponent(AgentProperties {
+                        integrity: hp,
+                        max_integrity: hp,
+                        priority,
+                        max_priority: priority,
                         energy: 100,
                         max_energy: 100,
-                        shield_regen_per_s: 5,
+                        priority_regen_per_s: 5,
                         energy_regen_per_s: 10,
                     }),
                     PhysicsBody {
@@ -921,53 +961,53 @@ impl WorldState for BevyWorldAdapter {
                         max_velocity: crate::physics_consts::DEFAULT_MAX_VELOCITY,
                         turn_rate: 270.0,
                         drag: crate::physics_consts::DEFAULT_DRAG,
-                        mass_per_ore: crate::physics_consts::MASS_PER_ORE,
+                        mass_per_payload: crate::physics_consts::MASS_PER_PAYLOAD,
                     },
-                    crate::components::CargoHold {
-                        ore_count: 0,
+                    crate::components::DataStore {
+                        payload_count: 0,
                         capacity: 500,
                     },
-                    crate::components::MiningBeam {
+                    crate::components::ExtractionBeam {
                         active: false,
                         target: None,
-                        mining_range: 15.0,
-                        base_mining_rate: 2, // Slower pacing
+                        extraction_range: 15.0,
+                        base_extraction_rate: 2, // Slower pacing
                         last_seen_input_tick: None,
                     },
                     crate::components::PlayerName {
-                        name: if kind == ENTITY_TYPE_AI_INTERCEPTOR {
-                            "AI Interceptor"
+                        name: if kind == ENTITY_TYPE_AI_AGENT {
+                            "AI Agent"
                         } else {
                             "Player"
                         }
                         .to_string(),
                     },
-                    WeaponComponent(aetheris_protocol::types::Weapon {
+                    ToolComponent(aetheris_protocol::types::Tool {
                         cooldown_ticks: 30, // 0.5s
                         last_fired_tick: 0,
                     }),
-                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: shield,
-                        max: shield,
+                    PriorityPoolComponent(aetheris_protocol::types::PriorityPool {
+                        current: priority,
+                        max: priority,
                     }),
-                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                    IntegrityPoolComponent(aetheris_protocol::types::IntegrityPool {
                         current: hp,
                         max: hp,
                     }),
-                    crate::components::ShieldRegenTimer {
+                    crate::components::PriorityRegenTimer {
                         ticks_until_regen: 0,
                     },
                 ));
 
-                if kind == ENTITY_TYPE_AI_INTERCEPTOR {
+                if kind == ENTITY_TYPE_AI_AGENT {
                     entity_mut.insert(AiControlled);
                 }
             }
-            ENTITY_TYPE_PROJECTILE => {
-                // Projectile (VS-03 refinement)
+            ENTITY_TYPE_BEAM => {
+                // Beam (VS-03 refinement)
                 entity_mut.insert((
-                    crate::components::ProjectileMarker {
-                        projectile_type: aetheris_protocol::types::ProjectileType::PulseLaser,
+                    crate::components::BeamMarker {
+                        beam_type: aetheris_protocol::types::InteractionBeamType::PulseBeam,
                         spawn_pos: [x, y],
                         max_range: 200.0,    // VS-03: range aligned with auto-aim
                         owner: NetworkId(0), // Default, set later if needed
@@ -983,16 +1023,16 @@ impl WorldState for BevyWorldAdapter {
                         thrust_force: 0.0,
                         max_velocity: 1000.0, // High speed
                         turn_rate: 0.0,
-                        drag: 0.0, // No drag for projectiles
-                        mass_per_ore: 0.0,
+                        drag: 0.0, // No drag for beams
+                        mass_per_payload: 0.0,
                     },
                 ));
             }
-            ENTITY_TYPE_CARGO_DROP => {
-                // Cargo Drop
+            ENTITY_TYPE_DATA_DROP => {
+                // Data Drop
                 entity_mut.insert((
-                    crate::components::CargoDropComponent(aetheris_protocol::types::CargoDrop {
-                        quantity: 0,
+                    crate::components::DataDropComponent(aetheris_protocol::types::DataDrop {
+                        amount: 0,
                     }),
                     PhysicsBody {
                         base_mass: 10.0,
@@ -1000,28 +1040,28 @@ impl WorldState for BevyWorldAdapter {
                         max_velocity: 10.0,
                         turn_rate: 0.0,
                         drag: 2.0,
-                        mass_per_ore: 0.0,
+                        mass_per_payload: 0.0,
                     },
                 ));
             }
-            ENTITY_TYPE_TRAINING_DUMMY => {
-                // Training Dummy (VS-03)
-                let (hp, shield) = get_default_stats(kind);
+            ENTITY_TYPE_TRAINING_TARGET => {
+                // Training Target (VS-03)
+                let (hp, priority) = get_default_properties(kind);
                 entity_mut.insert((
-                    TrainingDummy,
-                    ShipClassComponent(ShipClass::Hauler),
-                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: shield,
-                        max: shield,
+                    TrainingTarget,
+                    AgentKindComponent(AgentKind::Carrier),
+                    PriorityPoolComponent(aetheris_protocol::types::PriorityPool {
+                        current: priority,
+                        max: priority,
                     }),
-                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                    IntegrityPoolComponent(aetheris_protocol::types::IntegrityPool {
                         current: hp,
                         max: hp,
                     }),
                     crate::components::PlayerName {
-                        name: "Training Dummy".to_string(),
+                        name: "Training Target".to_string(),
                     },
-                    crate::components::ShieldRegenTimer {
+                    crate::components::PriorityRegenTimer {
                         ticks_until_regen: 0,
                     },
                     PhysicsBody {
@@ -1030,23 +1070,23 @@ impl WorldState for BevyWorldAdapter {
                         max_velocity: 0.0,
                         turn_rate: 0.0,
                         drag: 1.0,
-                        mass_per_ore: 0.0,
+                        mass_per_payload: 0.0,
                     },
                 ));
             }
-            ENTITY_TYPE_DREADNOUGHT => {
-                // Dreadnought (GDD §4.2 / M1020 §3.1)
-                let (hp, shield) = get_default_stats(kind);
+            ENTITY_TYPE_HEAVY_AGENT => {
+                // Heavy Agent (GDD §4.2 / M1020 §3.1)
+                let (hp, priority) = get_default_properties(kind);
                 entity_mut.insert((
-                    ShipClassComponent(ShipClass::Dreadnought),
-                    ShipStatsComponent(ShipStats {
-                        hp,
-                        max_hp: hp,
-                        shield,
-                        max_shield: shield,
+                    AgentKindComponent(AgentKind::Heavy),
+                    AgentPropertiesComponent(AgentProperties {
+                        integrity: hp,
+                        max_integrity: hp,
+                        priority,
+                        max_priority: priority,
                         energy: 300,
                         max_energy: 300,
-                        shield_regen_per_s: 15,
+                        priority_regen_per_s: 15,
                         energy_regen_per_s: 20,
                     }),
                     PhysicsBody {
@@ -1055,42 +1095,42 @@ impl WorldState for BevyWorldAdapter {
                         max_velocity: 60.0,
                         turn_rate: 60.0,
                         drag: crate::physics_consts::DEFAULT_DRAG,
-                        mass_per_ore: MASS_PER_ORE,
+                        mass_per_payload: MASS_PER_PAYLOAD,
                     },
-                    crate::components::CargoHold {
-                        ore_count: 0,
+                    crate::components::DataStore {
+                        payload_count: 0,
                         capacity: 500,
                     },
-                    crate::components::MiningBeam::default(),
+                    crate::components::ExtractionBeam::default(),
                     crate::components::PlayerName {
-                        name: "Dreadnought".to_string(),
+                        name: "Heavy Agent".to_string(),
                     },
-                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: shield,
-                        max: shield,
+                    PriorityPoolComponent(aetheris_protocol::types::PriorityPool {
+                        current: priority,
+                        max: priority,
                     }),
-                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                    IntegrityPoolComponent(aetheris_protocol::types::IntegrityPool {
                         current: hp,
                         max: hp,
                     }),
-                    crate::components::ShieldRegenTimer {
+                    crate::components::PriorityRegenTimer {
                         ticks_until_regen: 0,
                     },
                 ));
             }
-            ENTITY_TYPE_HAULER => {
-                // Hauler (GDD §4.2 / M1020 §3.1)
-                let (hp, shield) = get_default_stats(kind);
+            ENTITY_TYPE_CARRIER_AGENT => {
+                // Carrier (GDD §4.2 / M1020 §3.1)
+                let (hp, priority) = get_default_properties(kind);
                 entity_mut.insert((
-                    ShipClassComponent(ShipClass::Hauler),
-                    ShipStatsComponent(ShipStats {
-                        hp,
-                        max_hp: hp,
-                        shield,
-                        max_shield: shield,
+                    AgentKindComponent(AgentKind::Carrier),
+                    AgentPropertiesComponent(AgentProperties {
+                        integrity: hp,
+                        max_integrity: hp,
+                        priority,
+                        max_priority: priority,
                         energy: 150,
                         max_energy: 150,
-                        shield_regen_per_s: 8,
+                        priority_regen_per_s: 8,
                         energy_regen_per_s: 12,
                     }),
                     PhysicsBody {
@@ -1099,53 +1139,52 @@ impl WorldState for BevyWorldAdapter {
                         max_velocity: 80.0,
                         turn_rate: 150.0,
                         drag: crate::physics_consts::DEFAULT_DRAG,
-                        mass_per_ore: MASS_PER_ORE,
+                        mass_per_payload: MASS_PER_PAYLOAD,
                     },
-                    crate::components::CargoHold {
-                        ore_count: 0,
+                    crate::components::DataStore {
+                        payload_count: 0,
                         capacity: 500,
                     },
-                    crate::components::MiningBeam::default(),
+                    crate::components::ExtractionBeam::default(),
                     crate::components::PlayerName {
-                        name: "Hauler".to_string(),
+                        name: "Carrier Agent".to_string(),
                     },
-                    ShieldPoolComponent(aetheris_protocol::types::ShieldPool {
-                        current: shield,
-                        max: shield,
+                    PriorityPoolComponent(aetheris_protocol::types::PriorityPool {
+                        current: priority,
+                        max: priority,
                     }),
-                    HullPoolComponent(aetheris_protocol::types::HullPool {
+                    IntegrityPoolComponent(aetheris_protocol::types::IntegrityPool {
                         current: hp,
                         max: hp,
                     }),
-                    crate::components::ShieldRegenTimer {
+                    crate::components::PriorityRegenTimer {
                         ticks_until_regen: 0,
                     },
                 ));
             }
-            ENTITY_TYPE_ASTEROID => {
-                // Mining Asteroid (Kind 5 from renderer/UI)
+            ENTITY_TYPE_RESOURCE => {
+                // Resource (Kind 5 from renderer/UI)
                 entity_mut.insert((
-                    crate::components::Asteroid {
-                        ore_remaining: 100,
+                    crate::components::Resource {
+                        payload_remaining: 100,
                         total_capacity: 100,
                     },
-                    crate::components::AsteroidHP {
-                        hp: 500,
-                        max_hp: 500,
+                    crate::components::ResourceIntegrity {
+                        integrity: 500,
+                        max_integrity: 500,
                     },
                 ));
             }
             _ => {}
         }
-
-        entity_mut.insert(RoomMembershipComponent(
-            aetheris_protocol::types::RoomMembership(master_nid),
+        entity_mut.insert(WorkspaceMembershipComponent(
+            aetheris_protocol::types::WorkspaceMembership(master_nid),
         ));
         let entity = entity_mut.id();
 
         if let Some(mut index) = self
             .world
-            .get_resource_mut::<crate::components::RoomIndex>()
+            .get_resource_mut::<crate::components::WorkspaceIndex>()
         {
             index
                 .memberships
@@ -1177,13 +1216,13 @@ impl WorldState for BevyWorldAdapter {
             network_id = nid.0,
             kind,
             client_id = client_id.0,
-            session_ship = false,
-            "[spawn_kind_for] playground entity spawned (NO SessionShip)"
+            session_agent = false,
+            "[spawn_kind_for] playground entity spawned (NO SessionAgent)"
         );
         nid
     }
 
-    fn spawn_session_ship(
+    fn spawn_session_agent(
         &mut self,
         kind: u16,
         x: f32,
@@ -1195,45 +1234,48 @@ impl WorldState for BevyWorldAdapter {
         if let Some(&entity) = self.bimap.get_by_left(&nid) {
             self.world
                 .entity_mut(entity)
-                .insert(crate::components::SessionShip);
+                .insert(crate::components::SessionAgent);
 
-            // VS-06 — Register client room assignment for fast lookup
-            let room_id = self
-                .get_entity_room(nid)
-                .expect("Session ship missing room");
+            // VS-06 — Register client workspace assignment for fast lookup
+            let workspace_id = self
+                .get_entity_workspace(nid)
+                .expect("Session agent missing workspace");
             if let Some(mut index) = self
                 .world
-                .get_resource_mut::<crate::components::RoomIndex>()
+                .get_resource_mut::<crate::components::WorkspaceIndex>()
             {
-                index.client_rooms.insert(client_id, room_id);
+                index.client_workspaces.insert(client_id, workspace_id);
             }
         }
         tracing::info!(
             network_id = nid.0,
             kind,
             client_id = client_id.0,
-            session_ship = true,
-            "[spawn_session_ship] session ship spawned (SessionShip marker attached + RoomIndex updated)"
+            session_agent = true,
+            "[spawn_session_agent] session agent spawned (SessionAgent marker attached + WorkspaceIndex updated)"
         );
         nid
     }
 
     fn setup_world(&mut self) {
         // VS-02 — Empty start (0 entities).
-        // The master room will be created lazily on the first spawn_kind call.
+        // The master workspace will be created lazily on the first spawn_kind call.
     }
 
-    /// Queues a reliable game event for a specific client (or all clients if None).
+    /// Queues a reliable platform event for a specific client (or all clients if None).
     fn queue_reliable_event(
         &mut self,
         client_id: Option<aetheris_protocol::types::ClientId>,
-        event: aetheris_protocol::events::GameEvent,
+        event: aetheris_protocol::events::PlatformEvent,
     ) {
         if let Some(mut reliable) = self
             .world
             .get_resource_mut::<crate::components::ReliableEvents>()
         {
-            reliable.queue.push((client_id, event));
+            reliable.queue.push((
+                client_id,
+                aetheris_protocol::events::WireEvent::PlatformEvent(event),
+            ));
         }
     }
 
@@ -1247,7 +1289,7 @@ impl WorldState for BevyWorldAdapter {
         // VS-02 — Also clear pending respawn trackers to prevent "ghost" reappearances
         let mut respawn_query = self
             .world
-            .query_filtered::<Entity, bevy_ecs::prelude::With<crate::components::AsteroidRespawn>>(
+            .query_filtered::<Entity, bevy_ecs::prelude::With<crate::components::ResourceRespawn>>(
             );
         let to_despawn: Vec<_> = respawn_query.iter(&self.world).collect();
         for entity in to_despawn {
@@ -1256,41 +1298,44 @@ impl WorldState for BevyWorldAdapter {
 
         self.allocator.reset();
 
-        // VS-06 — Explicitly clear RoomIndex to prevent stale memberships/client mappings
+        // VS-06 — Explicitly clear WorkspaceIndex to prevent stale memberships/client mappings
         if let Some(mut index) = self
             .world
-            .get_resource_mut::<crate::components::RoomIndex>()
+            .get_resource_mut::<crate::components::WorkspaceIndex>()
         {
             index.memberships.clear();
-            index.client_rooms.clear();
+            index.client_workspaces.clear();
         }
 
         // Force a full state extraction for all entities in the next tick
         self.last_extraction_tick = None;
 
-        // Recreate the Master Room after a clear
+        // Recreate the Master Workspace after a clear
         self.setup_world();
     }
 
-    fn get_entity_room(&self, network_id: NetworkId) -> Option<NetworkId> {
+    fn get_entity_workspace(&self, network_id: NetworkId) -> Option<NetworkId> {
         let entity = self.bimap.get_by_left(&network_id)?;
-        let membership = self.world.get::<RoomMembershipComponent>(*entity)?;
+        let membership = self.world.get::<WorkspaceMembershipComponent>(*entity)?;
         Some(membership.0.0)
     }
 
     #[allow(clippy::collapsible_if)]
-    fn get_client_room(&self, client_id: ClientId) -> Option<NetworkId> {
+    fn get_client_workspace(&self, client_id: ClientId) -> Option<NetworkId> {
         // 1. Check the fast lookup index
-        if let Some(index) = self.world.get_resource::<crate::components::RoomIndex>() {
-            if let Some(&room_id) = index.client_rooms.get(&client_id) {
-                return Some(room_id);
+        if let Some(index) = self
+            .world
+            .get_resource::<crate::components::WorkspaceIndex>()
+        {
+            if let Some(&workspace_id) = index.client_workspaces.get(&client_id) {
+                return Some(workspace_id);
             }
         }
 
         // 2. Fallback for Playground: Every client is in Playground_Master by default
         // We use a manual loop over bimap to avoid needing &mut World for a Query
         for (_, entity) in &self.bimap {
-            if let Some(def) = self.world.get::<RoomDefinitionComponent>(*entity) {
+            if let Some(def) = self.world.get::<WorkspaceDefinitionComponent>(*entity) {
                 if def.0.name.as_str() == "Playground_Master" {
                     return self.bimap.get_by_right(entity).copied();
                 }

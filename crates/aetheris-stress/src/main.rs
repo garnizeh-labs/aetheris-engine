@@ -11,7 +11,7 @@ use aetheris_encoder_serde::SerdeEncoder;
 use aetheris_protocol::auth::v1::{
     ClientMetadata, LoginRequest, OtpLoginRequest, auth_service_client::AuthServiceClient,
 };
-use aetheris_protocol::events::{GameEvent, NetworkEvent};
+use aetheris_protocol::events::{NetworkEvent, PlatformEvent};
 use aetheris_protocol::traits::Encoder;
 use aetheris_protocol::types::{
     ClientId, INPUT_COMMAND_KIND, InputCommand, NetworkId, PlayerInputKind,
@@ -398,8 +398,8 @@ async fn run_bot_inner(
 
             // Poll for events (like Possession)
             while let Some(data) = client.receive_message(CHANNEL_RELIABLE) {
-                if let Ok(NetworkEvent::GameEvent {
-                    event: GameEvent::Possession { network_id },
+                if let Ok(NetworkEvent::PlatformEvent {
+                    event: PlatformEvent::Possession { network_id },
                     ..
                 }) = encoder.decode_event(&data)
                 {

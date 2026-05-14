@@ -19,7 +19,7 @@ use wtransport::endpoint::endpoint_side::Server as ServerSide;
 use wtransport::{Connection, Endpoint, Identity, ServerConfig};
 
 use aetheris_protocol::events::NetworkEvent;
-use aetheris_protocol::traits::{ClientId, GameTransport, TransportError};
+use aetheris_protocol::traits::{ClientId, PlatformTransport, TransportError};
 
 type ConnectionMap = HashMap<ClientId, Connection>;
 type AuthValidator = Arc<dyn Fn(&str) -> bool + Send + Sync>;
@@ -111,7 +111,7 @@ impl WebTransportBridge {
 }
 
 #[async_trait]
-impl GameTransport for WebTransportBridge {
+impl PlatformTransport for WebTransportBridge {
     #[tracing::instrument(skip(self, data), fields(client_id = %client_id.0, size = data.len()))]
     async fn send_unreliable(
         &self,
@@ -219,6 +219,20 @@ impl GameTransport for WebTransportBridge {
         self.connected_client_count
             .load(std::sync::atomic::Ordering::Relaxed)
     }
+
+    async fn disconnect(&self, client_id: ClientId) -> Result<(), TransportError> {
+        let mut conn_guard = self.connections.lock().await;
+        if let Some(conn) = conn_guard.remove(&client_id) {
+            // M10161: Close the connection with a specific code (4001 - Session Replaced)
+            // so the client knows it was kicked by a new session.
+            conn.close(4001u32.into(), b"Session Replaced");
+            self.connected_client_count
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        } else {
+            Err(TransportError::ClientNotConnected(client_id))
+        }
+    }
 }
 
 impl WebTransportBridge {
@@ -246,7 +260,8 @@ async fn handle_incoming_connection(
             r
         }
         Err(e) => {
-            warn!(
+            // M10164: Reduce log noise for common QUIC handshake timeouts (often caused by reloads)
+            tracing::debug!(
                 "Failed to accept incoming WebTransport session request: {}",
                 e
             );
@@ -336,7 +351,8 @@ async fn handle_incoming_connection(
                             metrics::counter!("aetheris_transport_bytes_total", "transport" => "webtransport", "direction" => "inbound", "channel" => "unreliable").increment(data.len() as u64);
                         }
                         Err(e) => {
-                            warn!("WebTransport receive_datagram failed for client {:?}: {:?}", client_id, e);
+                            // M10164: Distinguish between fatal errors and normal closure/timeout
+                            tracing::debug!("WebTransport receive_datagram loop ended for client {:?}: {:?}", client_id, e);
                             let mut events_guard = events_clone.lock().await;
                             events_guard.push_back(NetworkEvent::SessionClosed(client_id));
                             break;
@@ -382,7 +398,7 @@ async fn handle_incoming_connection(
                             });
                         }
                         Err(e) => {
-                            warn!("WebTransport accept_bi failed for client {:?}: {:?}", client_id, e);
+                            tracing::debug!("WebTransport accept_bi loop ended for client {:?}: {:?}", client_id, e);
                             break;
                         }
                     }
@@ -390,7 +406,7 @@ async fn handle_incoming_connection(
             }
         }
 
-        warn!("Client disconnected via WebTransport: {:?}", client_id);
+        tracing::info!("Client session finalized via WebTransport: {:?}", client_id);
         count_clone.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         {
             let mut conn_guard = connections_clone.lock().await;

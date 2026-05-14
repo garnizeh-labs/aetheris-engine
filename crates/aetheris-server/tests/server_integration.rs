@@ -13,7 +13,7 @@ use aetheris_protocol::events::{ComponentUpdate, NetworkEvent, ReplicationEvent}
 use aetheris_protocol::test_doubles::{
     MockEncoder, MockEncoder as ME, MockTransport, MockWorldState,
 };
-use aetheris_protocol::traits::{Encoder, GameTransport, WorldError, WorldState};
+use aetheris_protocol::traits::{Encoder, PlatformTransport, WorldError, WorldState};
 use aetheris_protocol::types::{ClientId, ComponentKind, NetworkId};
 use aetheris_server::TickScheduler;
 use aetheris_server::auth::AuthServiceImpl;
@@ -179,7 +179,7 @@ struct SharedState {
 struct TransportRef(SharedState);
 
 #[async_trait::async_trait]
-impl GameTransport for TransportRef {
+impl PlatformTransport for TransportRef {
     async fn send_unreliable(
         &self,
         id: ClientId,
@@ -208,6 +208,14 @@ impl GameTransport for TransportRef {
     ) -> Result<Vec<NetworkEvent>, aetheris_protocol::error::TransportError> {
         let mut t = self.0.transport.lock().await;
         t.poll_events().await
+    }
+    async fn disconnect(
+        &self,
+        id: ClientId,
+    ) -> Result<(), aetheris_protocol::error::TransportError> {
+        let t = self.0.transport.lock().await;
+        let _ = t.disconnect(id).await;
+        Ok(())
     }
     async fn connected_client_count(&self) -> usize {
         let t = self.0.transport.lock().await;
@@ -716,7 +724,7 @@ async fn test_large_delta_fragmentation() {
     }
 
     let mut scheduler = TickScheduler::new(100, auth_service.clone(), single_thread_encode_pool());
-    let transport_box: Box<dyn GameTransport> = Box::new(TransportRef(state.clone()));
+    let transport_box: Box<dyn PlatformTransport> = Box::new(TransportRef(state.clone()));
     let transport_lock = RwLock::new(transport_box);
     let mut world_box: Box<dyn WorldState> = Box::new(WorldRef(state.clone()));
     let loop_encoder = LargeEncoderRef {
